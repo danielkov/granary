@@ -175,10 +175,16 @@ pub async fn task(id: &str, action: Option<TaskAction>, format: OutputFormat) ->
                 println!("{}", formatter.format_comments(&comments));
             }
             Some(CommentAction::Create {
-                content,
+                content_positional,
+                content_flag,
                 kind,
                 author,
             }) => {
+                let content = content_positional
+                    .or(content_flag)
+                    .ok_or_else(|| crate::error::GranaryError::InvalidArgument(
+                        "content is required (provide as positional argument or with --content flag)".to_string()
+                    ))?;
                 let comment = create_comment(&pool, id, &content, &kind, author).await?;
                 println!("{}", formatter.format_comment(&comment));
             }

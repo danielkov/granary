@@ -69,9 +69,12 @@ pub enum Commands {
     /// Check workspace health
     Doctor,
 
-    /// Show any entity by ID (auto-detects type: project, task, session, checkpoint, comment, artifact)
+    /// Show any entity by ID (auto-detects type from ID pattern)
+    #[command(
+        after_help = "EXAMPLES:\n    granary show my-project-abc1           # Show a project\n    granary show my-project-abc1-task-1    # Show a task\n    granary show sess-20260112-xyz1        # Show a session\n    granary show chkpt-abc123              # Show a checkpoint\n\nID PATTERNS:\n    project:    <name>-<4chars>              e.g., my-project-abc1\n    task:       <project-id>-task-<n>        e.g., my-project-abc1-task-1\n    session:    sess-<date>-<4chars>         e.g., sess-20260112-xyz1\n    checkpoint: chkpt-<6chars>               e.g., chkpt-abc123\n    comment:    <task-id>-comment-<n>        e.g., my-proj-abc1-task-1-comment-1\n    artifact:   <task-id>-artifact-<n>       e.g., my-proj-abc1-task-1-artifact-1"
+    )]
     Show {
-        /// Entity ID
+        /// Entity ID (auto-detected: project, task, session, checkpoint, comment, artifact)
         id: String,
     },
 
@@ -479,9 +482,12 @@ pub enum SubtaskAction {
 pub enum CommentAction {
     /// Create a comment
     Create {
-        /// Comment content
-        #[arg(long)]
-        content: String,
+        /// Comment content (positional argument)
+        content_positional: Option<String>,
+
+        /// Comment content (flag form, alternative to positional)
+        #[arg(long = "content")]
+        content_flag: Option<String>,
 
         /// Comment kind (note, progress, decision, blocker, handoff, incident, context)
         #[arg(long, default_value = "note")]
@@ -550,13 +556,14 @@ pub enum SessionAction {
         summary: Option<String>,
     },
 
-    /// Add item to session scope
+    /// Add item to session scope (auto-detects type from ID if not specified)
+    #[command(
+        after_help = "EXAMPLES:\n    granary session add my-project-abc1              # Auto-detect as project\n    granary session add my-project-abc1-task-1      # Auto-detect as task\n    granary session add project my-project-abc1     # Explicit type (backward compat)"
+    )]
     Add {
-        /// Item type (project, task)
-        item_type: String,
-
-        /// Item ID
-        item_id: String,
+        /// Arguments: either just <id> (auto-detect type) or <type> <id> (explicit type)
+        #[arg(num_args = 1..=2)]
+        args: Vec<String>,
     },
 
     /// Remove item from session scope

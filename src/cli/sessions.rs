@@ -42,6 +42,9 @@ pub async fn session(action: SessionAction, format: OutputFormat) -> Result<()> 
 
             println!("Started session: {}", session.id);
             println!("{}", formatter.format_session(&session));
+            eprintln!(
+                "\nIMPORTANT: Remember to close this session when done with: granary session close --summary \"your summary here...\""
+            );
         }
 
         SessionAction::Current => {
@@ -94,13 +97,48 @@ pub async fn session(action: SessionAction, format: OutputFormat) -> Result<()> 
             println!("Closed session: {}", session.id);
         }
 
-        SessionAction::Add { item_type, item_id } => {
+        SessionAction::Add { args } => {
             let session_id = workspace
                 .current_session_id()
                 .ok_or(GranaryError::NoActiveSession)?;
 
-            let item_type_enum: ScopeItemType = item_type.parse().map_err(|_| {
-                GranaryError::InvalidArgument(format!("Invalid item type: {}", item_type))
+            // Parse args: either [id] (auto-detect) or [type, id] (explicit)
+            let (item_type_str, item_id) = match args.len() {
+                1 => {
+                    // Auto-detect type from ID
+                    let id = &args[0];
+                    let kind = crate::cli::show::detect_entity_kind(id);
+                    let type_str = match kind {
+                        crate::cli::show::EntityKind::Project => "project",
+                        crate::cli::show::EntityKind::Task => "task",
+                        _ => {
+                            return Err(GranaryError::InvalidArgument(format!(
+                                "Cannot add {} to session scope (only projects and tasks are supported)",
+                                match kind {
+                                    crate::cli::show::EntityKind::Session => "sessions",
+                                    crate::cli::show::EntityKind::Checkpoint => "checkpoints",
+                                    crate::cli::show::EntityKind::Comment => "comments",
+                                    crate::cli::show::EntityKind::Artifact => "artifacts",
+                                    _ => "unknown entities",
+                                }
+                            )));
+                        }
+                    };
+                    (type_str.to_string(), id.clone())
+                }
+                2 => {
+                    // Explicit type provided
+                    (args[0].clone(), args[1].clone())
+                }
+                _ => {
+                    return Err(GranaryError::InvalidArgument(
+                        "Expected: session add <id> or session add <type> <id>".to_string(),
+                    ));
+                }
+            };
+
+            let item_type_enum: ScopeItemType = item_type_str.parse().map_err(|_| {
+                GranaryError::InvalidArgument(format!("Invalid item type: {}", item_type_str))
             })?;
 
             // Verify the item exists
@@ -115,7 +153,7 @@ pub async fn session(action: SessionAction, format: OutputFormat) -> Result<()> 
             }
 
             services::add_to_scope(&pool, &session_id, item_type_enum, &item_id).await?;
-            println!("Added {} {} to session scope", item_type, item_id);
+            println!("Added {} {} to session scope", item_type_str, item_id);
         }
 
         SessionAction::Rm { item_type, item_id } => {
