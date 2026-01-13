@@ -5,11 +5,17 @@ description: Execute an assigned granary task as a sub-agent. Use when you recei
 
 # Executing a Granary Task
 
-Use this skill when you're a sub-agent assigned to complete a specific task.
+You are a **sub-agent** spawned by an orchestrator to complete a specific task. Your responsibility is to:
 
-## 1. View Task Details
+1. Implement the task as described
+2. Report your progress
+3. Signal completion or blockers back to the orchestrator
 
-First, understand what you need to do:
+**You do NOT coordinate other agents. You do the actual work.**
+
+## Step 1: Understand Your Task
+
+View the task details:
 
 ```bash
 granary show <task-id>
@@ -17,29 +23,37 @@ granary show <task-id>
 granary task <task-id>
 ```
 
-Read the task description carefully - it contains all the context you need.
+Read the task description carefully - it contains all the context you need. If the orchestrator provided handoff context, that also contains relevant information.
 
-## 2. Start the Task
+## Step 2: Start the Task
 
-Mark the task as in-progress and optionally claim it with a lease:
+Mark the task as in-progress:
 
 ```bash
-# Simple start
-granary task <task-id> start --owner "Worker"
+granary task <task-id> start
+```
 
-# With lease (prevents conflicts in multi-agent scenarios)
-granary task <task-id> start --owner "Worker" --lease 30
+If working in a multi-agent environment, claim with a lease to prevent conflicts:
+
+```bash
+granary task <task-id> start --lease 30
 ```
 
 The lease (in minutes) ensures no other agent claims this task while you work.
 
-## 3. Do the Work
+## Step 3: Do the Work
 
-Perform the actual implementation described in the task.
+**This is your main responsibility.** Implement whatever the task description specifies:
+
+- Write code
+- Create files
+- Run tests
+- Fix bugs
+- Whatever the task requires
 
 ### Record Progress
 
-Add comments as you work to maintain visibility:
+Add comments as you work to maintain visibility for the orchestrator:
 
 ```bash
 granary task <task-id> comments create "Started implementing the login form"
@@ -48,29 +62,37 @@ granary task <task-id> comments create "Completed form validation, now adding AP
 
 Comment kinds: `note`, `progress`, `decision`, `blocker`
 
-### If You Get Blocked
+## Step 4: Report Completion
 
-If you cannot continue:
-
-```bash
-granary task <task-id> block --reason "Waiting for API credentials from ops team"
-```
-
-## 4. Complete the Task
-
-When finished:
+When you have successfully completed the task:
 
 ```bash
 granary task <task-id> done --comment "Implemented login form with validation and API integration"
 ```
 
-## 5. Handle Failures
+**Important**: Only mark done when the task is truly complete according to its acceptance criteria.
 
-If you cannot complete the task, release it so others can pick it up:
+## Handling Problems
+
+### If You Get Blocked
+
+If you cannot continue due to external factors:
+
+```bash
+granary task <task-id> block --reason "Waiting for API credentials from ops team"
+```
+
+This signals to the orchestrator that this task needs attention.
+
+### If You Cannot Complete
+
+If you cannot complete the task for any reason, release it so others can pick it up:
 
 ```bash
 granary task <task-id> release
 ```
+
+Then report back to the orchestrator with what went wrong.
 
 ## Multi-Agent Safety
 
@@ -88,3 +110,15 @@ Exit codes to watch for:
 
 - `4` = Conflict (task claimed by another agent)
 - `5` = Blocked (dependencies not met)
+
+## Summary
+
+As a sub-agent, your workflow is:
+
+1. **Read task** → Understand what to do
+2. **Start task** → `granary task <id> start`
+3. **Do the work** → Actually implement the task
+4. **Record progress** → `granary task <id> comments create "..."`
+5. **Complete or block** → `granary task <id> done` or `granary task <id> block`
+
+You are the implementer. Stay focused on your assigned task.
