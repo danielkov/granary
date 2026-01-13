@@ -352,6 +352,60 @@ pub fn format_next_task(task: Option<&Task>, reason: Option<&str>) -> String {
     }
 }
 
+#[derive(Tabled)]
+struct SearchResultRow {
+    #[tabled(rename = "Type")]
+    entity_type: String,
+    #[tabled(rename = "ID")]
+    id: String,
+    #[tabled(rename = "Title/Name")]
+    title: String,
+    #[tabled(rename = "Status")]
+    status: String,
+    #[tabled(rename = "Priority")]
+    priority: String,
+}
+
+impl From<&SearchResult> for SearchResultRow {
+    fn from(result: &SearchResult) -> Self {
+        match result {
+            SearchResult::Project {
+                id,
+                name,
+                status,
+                ..
+            } => Self {
+                entity_type: "project".to_string(),
+                id: id.clone(),
+                title: truncate(name, 40),
+                status: status.clone(),
+                priority: "-".to_string(),
+            },
+            SearchResult::Task {
+                id,
+                title,
+                status,
+                priority,
+                ..
+            } => Self {
+                entity_type: "task".to_string(),
+                id: id.clone(),
+                title: truncate(title, 40),
+                status: status.clone(),
+                priority: priority.clone(),
+            },
+        }
+    }
+}
+
+pub fn format_search_results(results: &[SearchResult]) -> String {
+    if results.is_empty() {
+        return "No results found.\n".to_string();
+    }
+    let rows: Vec<SearchResultRow> = results.iter().map(SearchResultRow::from).collect();
+    Table::new(rows).to_string()
+}
+
 // Helper functions
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() > max_len {

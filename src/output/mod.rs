@@ -163,6 +163,16 @@ impl Formatter {
             _ => table::format_next_task(task, reason),
         }
     }
+
+    pub fn format_search_results(&self, results: &[SearchResult]) -> String {
+        match self.format {
+            OutputFormat::Json => json::format_search_results(results),
+            OutputFormat::Yaml => yaml_format_search_results(results),
+            OutputFormat::Md => md_format_search_results(results),
+            OutputFormat::Prompt => prompt::format_search_results(results),
+            OutputFormat::Table => table::format_search_results(results),
+        }
+    }
 }
 
 // YAML formatters (using serde_yaml)
@@ -361,6 +371,48 @@ fn md_format_checkpoints(checkpoints: &[Checkpoint]) -> String {
             "- **{}** (`{}`) - {}\n",
             cp.name, cp.id, cp.created_at
         ));
+    }
+    md
+}
+
+fn yaml_format_search_results(results: &[SearchResult]) -> String {
+    serde_yaml::to_string(results).unwrap_or_else(|_| "Error formatting YAML".to_string())
+}
+
+fn md_format_search_results(results: &[SearchResult]) -> String {
+    let mut md = String::from("# Search Results\n\n");
+    for result in results {
+        match result {
+            SearchResult::Project {
+                id,
+                name,
+                description,
+                status,
+            } => {
+                md.push_str(&format!("- **[PROJECT]** {} (`{}`)", name, id));
+                if let Some(desc) = description {
+                    md.push_str(&format!(" - {}", desc));
+                }
+                md.push_str(&format!(" [{}]\n", status));
+            }
+            SearchResult::Task {
+                id,
+                title,
+                description,
+                status,
+                priority,
+                project_id,
+            } => {
+                md.push_str(&format!(
+                    "- **[TASK]** {} (`{}`) [{}]",
+                    title, id, priority
+                ));
+                if let Some(desc) = description {
+                    md.push_str(&format!(" - {}", desc));
+                }
+                md.push_str(&format!(" - {} (project: {})\n", status, project_id));
+            }
+        }
     }
     md
 }

@@ -28,6 +28,17 @@ granary projects
 granary project <project-id>
 ```
 
+### Finding Projects and Tasks
+
+Search for projects and tasks by title:
+
+```bash
+granary search "query"           # Find matching projects and tasks
+granary search "api" --json      # Get results as JSON
+```
+
+This is useful when you know part of the project or task name but not the exact ID.
+
 ## Step 3: Assess Project Readiness
 
 Examine the project structure:
@@ -56,44 +67,68 @@ granary session add <project-id>
 
 Your sole focus: **hand off tasks to sub-agents**. You do NOT implement tasks yourself.
 
+**Key principle: Maximize parallelism.** Always look for opportunities to run multiple tasks concurrently. Tasks without dependencies on each other can and should run in parallel.
+
+### Check for All Unblocked Tasks
+
 ```bash
-# Get next actionable task (respects dependencies)
+# Get ALL actionable tasks (not just one)
+granary next --all --json
+```
+
+This returns all tasks that are ready to execute (dependencies satisfied, not blocked). **Spawn agents for ALL of them in parallel.**
+
+If no tasks are returned, either all tasks are complete or remaining tasks are blocked.
+
+### Spawning Agents in Parallel
+
+When multiple tasks are unblocked, spawn them all at once using parallel Task tool calls:
+
+```
+# If granary next --all returns task-1, task-2, task-3:
+
+Use Task tool (call all three in a SINGLE message):
+  1. prompt: "Execute granary task task-1. Use /granary:execute-task skill."
+     subagent_type: "general-purpose"
+     run_in_background: true
+
+  2. prompt: "Execute granary task task-2. Use /granary:execute-task skill."
+     subagent_type: "general-purpose"
+     run_in_background: true
+
+  3. prompt: "Execute granary task task-3. Use /granary:execute-task skill."
+     subagent_type: "general-purpose"
+     run_in_background: true
+```
+
+**Important:** Use `run_in_background: true` for parallel execution. This allows multiple agents to work simultaneously.
+
+### The Loop
+
+1. **Get all unblocked tasks** → `granary next --all --json`
+2. **Spawn agents for ALL tasks in parallel** → One Task tool call per task, all in the same message
+3. **Monitor progress** → Check on background agents, wait for completions
+4. **Repeat** → When agents complete, new tasks may become unblocked
+
+### Single Task Fallback
+
+If only one task is available or tasks must be sequential:
+
+```bash
 granary next --json
 ```
 
-If no task is returned, all tasks are complete.
+Then spawn a single agent and wait for completion before checking for the next task.
 
-### For Each Task:
+### What Sub-Agents Do
 
-1. **Prepare the handoff context**
+Each sub-agent is responsible for:
+- Building context (`granary handoff --tasks <id>`)
+- Starting the task (`granary task <id> start`)
+- Doing the actual implementation
+- Marking the task done (`granary task <id> done`) or blocked
 
-   ```bash
-   granary handoff --to "Implementation Agent" --tasks <task-id>
-   ```
-
-2. **Spawn a sub-agent**
-   Use Claude Code's Task tool to spawn a sub-agent with:
-
-   - The handoff context
-   - Instruction to use `/granary:execute-task` skill
-   - The task ID
-
-3. **Wait for sub-agent completion**
-   The sub-agent is responsible for:
-
-   - Starting the task (`granary task <id> start`)
-   - Doing the actual implementation
-   - Marking the task done (`granary task <id> done`) or blocked
-
-4. **Repeat** - get next task with `granary next --json`
-
-### Example Sub-Agent Spawn
-
-```
-Use Task tool with:
-  prompt: "Execute granary task {TASK_ID}. Use /granary:execute-task skill."
-  subagent_type: "general-purpose"
-```
+**Note:** You do NOT need to run `granary handoff` yourself. Sub-agents handle their own context building. Your job is to identify unblocked tasks and spawn agents.
 
 ## Step 6: Handle Completion
 
@@ -115,18 +150,6 @@ granary task <task-id> block --reason "..."
 
 # You see it when checking next task
 granary next --json  # Will skip blocked tasks
-```
-
-### Parallel Execution
-
-For independent tasks, spawn multiple sub-agents:
-
-```bash
-# Export session for sub-agents
-eval $(granary session env)
-
-# Spawn multiple sub-agents with their own task IDs
-# They all share the same session via GRANARY_SESSION env var
 ```
 
 ### Conflict Prevention
@@ -155,7 +178,7 @@ granary checkpoint restore before-major-change
 2. **Find project** → `granary projects`
 3. **Assess readiness** → Are tasks planned? If not, use plan-work skill
 4. **Start session** → `granary session start`
-5. **Loop: hand off tasks** → Spawn sub-agents, do NOT implement yourself
+5. **Loop: delegate tasks in parallel** → Use `granary next --all`, spawn agents for ALL unblocked tasks at once
 6. **Close session** → `granary session close`
 
-Your job is **coordination**, not implementation. Sub-agents do the actual work.
+**Your job is coordination, not implementation.** Maximize throughput by running independent tasks in parallel. Sub-agents use `granary handoff` to build their own context and do the actual work—you just identify what's ready and spawn agents.

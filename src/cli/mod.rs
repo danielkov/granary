@@ -5,6 +5,7 @@ pub mod comments;
 pub mod config;
 pub mod init;
 pub mod projects;
+pub mod search;
 pub mod sessions;
 pub mod show;
 pub mod summary;

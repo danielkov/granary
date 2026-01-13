@@ -130,6 +130,10 @@ pub enum Commands {
         /// Include reason for selection
         #[arg(long)]
         include_reason: bool,
+
+        /// Show all currently available tasks
+        #[arg(long)]
+        all: bool,
     },
 
     /// Start a task (alias for task <id> start)
@@ -244,6 +248,12 @@ pub enum Commands {
     Steering {
         #[command(subcommand)]
         action: SteeringAction,
+    },
+
+    /// Search projects and tasks by title
+    Search {
+        /// Search query
+        query: String,
     },
 }
 

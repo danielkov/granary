@@ -503,6 +503,14 @@ pub async fn get_next_task(
     db::tasks::get_next(pool, project_ids).await
 }
 
+/// Get all currently actionable tasks
+pub async fn get_all_next_tasks(
+    pool: &SqlitePool,
+    project_ids: Option<&[String]>,
+) -> Result<Vec<Task>> {
+    db::tasks::get_all_next(pool, project_ids).await
+}
+
 /// Pin a task
 pub async fn pin_task(pool: &SqlitePool, id: &str) -> Result<Task> {
     let mut task = get_task(pool, id).await?;

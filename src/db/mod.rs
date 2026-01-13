@@ -301,6 +301,63 @@ pub mod tasks {
 
         Ok(task)
     }
+
+    /// Get all actionable tasks (next tasks without limit)
+    pub async fn get_all_next(
+        pool: &SqlitePool,
+        project_ids: Option<&[String]>,
+    ) -> Result<Vec<Task>> {
+        // Same query as get_next but without LIMIT 1
+        let base_query = r#"
+            SELECT t.*
+            FROM tasks t
+            WHERE t.status IN ('todo', 'in_progress')
+              AND t.blocked_reason IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM task_dependencies td
+                  JOIN tasks dep ON dep.id = td.depends_on_task_id
+                  WHERE td.task_id = t.id
+                    AND dep.status != 'done'
+              )
+        "#;
+
+        let mut query = base_query.to_string();
+
+        if project_ids.is_some() {
+            query.push_str(" AND t.project_id IN (");
+            query.push_str("SELECT value FROM json_each(?)");
+            query.push(')');
+        }
+
+        query.push_str(
+            r#"
+            ORDER BY
+                CASE t.priority
+                    WHEN 'P0' THEN 0
+                    WHEN 'P1' THEN 1
+                    WHEN 'P2' THEN 2
+                    WHEN 'P3' THEN 3
+                    WHEN 'P4' THEN 4
+                END,
+                t.due_at NULLS LAST,
+                t.created_at
+            "#,
+        );
+
+        let tasks = if let Some(ids) = project_ids {
+            let json_ids = serde_json::to_string(ids)?;
+            sqlx::query_as::<_, Task>(&query)
+                .bind(json_ids)
+                .fetch_all(pool)
+                .await?
+        } else {
+            sqlx::query_as::<_, Task>(&query)
+                .fetch_all(pool)
+                .await?
+        };
+
+        Ok(tasks)
+    }
 }
 
 /// Database operations for task dependencies
@@ -1064,5 +1121,40 @@ pub mod config {
                 .fetch_all(pool)
                 .await?;
         Ok(rows)
+    }
+}
+
+/// Database operations for search
+pub mod search {
+    use super::*;
+
+    /// Search projects by name (case-insensitive)
+    pub async fn search_projects(pool: &SqlitePool, query: &str) -> Result<Vec<Project>> {
+        let projects = sqlx::query_as::<_, Project>(
+            r#"
+            SELECT * FROM projects
+            WHERE name LIKE ? COLLATE NOCASE
+            ORDER BY created_at DESC
+            "#,
+        )
+        .bind(format!("%{}%", query))
+        .fetch_all(pool)
+        .await?;
+        Ok(projects)
+    }
+
+    /// Search tasks by title (case-insensitive)
+    pub async fn search_tasks(pool: &SqlitePool, query: &str) -> Result<Vec<Task>> {
+        let tasks = sqlx::query_as::<_, Task>(
+            r#"
+            SELECT * FROM tasks
+            WHERE title LIKE ? COLLATE NOCASE
+            ORDER BY created_at DESC
+            "#,
+        )
+        .bind(format!("%{}%", query))
+        .fetch_all(pool)
+        .await?;
+        Ok(tasks)
     }
 }

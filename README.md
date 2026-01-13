@@ -90,6 +90,7 @@ granary summary       # Generate work summary
 granary context       # Export context pack for LLM
 granary handoff       # Generate handoff for sub-agent
 granary checkpoint    # Create/restore checkpoints
+granary search        # Search projects and tasks by title
 ```
 
 Use `granary --help` or `granary <command> --help` for detailed usage.
@@ -104,6 +105,9 @@ granary tasks --json             # JSON for parsing
 granary tasks --format yaml      # YAML
 granary tasks --format md        # Markdown
 granary tasks --format prompt    # Optimized for LLM context
+
+granary search "api"             # Search in human-readable table
+granary search "api" --json      # JSON for parsing
 ```
 
 ## Integration with Claude Code

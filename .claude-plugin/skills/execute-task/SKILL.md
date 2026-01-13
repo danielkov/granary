@@ -7,15 +7,46 @@ description: Execute an assigned granary task as a sub-agent. Use when you recei
 
 You are a **sub-agent** spawned by an orchestrator to complete a specific task. Your responsibility is to:
 
-1. Implement the task as described
-2. Report your progress
-3. Signal completion or blockers back to the orchestrator
+1. Build context from the task
+2. Implement the task as described
+3. Report your progress
+4. Signal completion or blockers back to the orchestrator
 
 **You do NOT coordinate other agents. You do the actual work.**
 
-## Step 1: Understand Your Task
+## Step 1: Build Context from the Task
 
-View the task details:
+First, use `granary handoff` to retrieve full context for your task:
+
+```bash
+granary handoff --tasks <task-id>
+```
+
+This returns:
+- **Task description** with goals, requirements, and acceptance criteria
+- **Files to modify** with exact paths and line numbers
+- **Implementation details** including code patterns to follow
+- **Steering files** attached to the task or its parent project
+- **Global steering** with project-wide conventions
+
+**Read this context carefully.** The planner has done thorough research and provided everything you need. The handoff context is your primary source of truth.
+
+### Understanding the Handoff Output
+
+The handoff includes:
+
+| Section | Contains |
+|---------|----------|
+| Task Details | Goal, context, requirements, acceptance criteria |
+| Files to Modify | Exact file paths with line numbers |
+| Implementation Details | Code examples, patterns, function signatures |
+| Steering Files | Project conventions, existing patterns, research notes |
+
+If the handoff mentions specific files like `src/services/user.rs:45-67`, read those files to understand the existing patterns before making changes.
+
+### Verify Task Metadata (Optional)
+
+If you need the raw task data:
 
 ```bash
 granary show <task-id>
@@ -23,7 +54,7 @@ granary show <task-id>
 granary task <task-id>
 ```
 
-Read the task description carefully - it contains all the context you need. If the orchestrator provided handoff context, that also contains relevant information.
+Use this to double-check task metadata (priority, dependencies, status).
 
 ## Step 2: Start the Task
 
@@ -115,10 +146,11 @@ Exit codes to watch for:
 
 As a sub-agent, your workflow is:
 
-1. **Read task** → Understand what to do
-2. **Start task** → `granary task <id> start`
-3. **Do the work** → Actually implement the task
-4. **Record progress** → `granary task <id> comments create "..."`
-5. **Complete or block** → `granary task <id> done` or `granary task <id> block`
+1. **Build context** → `granary handoff --tasks <id>` to get full task details with steering
+2. **Read referenced files** → Examine files mentioned in handoff (e.g., `src/foo.rs:45-67`)
+3. **Start task** → `granary task <id> start`
+4. **Do the work** → Implement following the patterns and details provided
+5. **Record progress** → `granary task <id> comments create "..."`
+6. **Complete or block** → `granary task <id> done` or `granary task <id> block`
 
-You are the implementer. Stay focused on your assigned task.
+**Remember:** The planner has done thorough research. Your handoff context contains file paths, implementation details, and code patterns. Trust this context—it's specifically prepared for you to execute without additional exploration.

@@ -4,6 +4,7 @@ pub mod comment;
 pub mod event;
 pub mod ids;
 pub mod project;
+pub mod search;
 pub mod session;
 pub mod task;
 
@@ -13,5 +14,6 @@ pub use comment::*;
 pub use event::*;
 pub use ids::*;
 pub use project::*;
+pub use search::*;
 pub use session::*;
 pub use task::*;

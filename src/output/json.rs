@@ -184,3 +184,7 @@ pub struct DiffChange {
 pub fn format_checkpoint_diff(diff: &CheckpointDiff) -> String {
     serde_json::to_string_pretty(diff).unwrap_or_else(|_| "{}".to_string())
 }
+
+pub fn format_search_results(results: &[SearchResult]) -> String {
+    serde_json::to_string_pretty(results).unwrap_or_else(|_| "[]".to_string())
+}

@@ -547,6 +547,53 @@ pub fn format_handoff(handoff: &HandoffOutput) -> String {
     output
 }
 
+pub fn format_search_results(results: &[SearchResult]) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("<search_results count=\"{}\">\n", results.len()));
+
+    for result in results {
+        match result {
+            SearchResult::Project {
+                id,
+                name,
+                description,
+                status,
+            } => {
+                output.push_str("<project>\n");
+                output.push_str(&format!("id: {}\n", id));
+                output.push_str(&format!("name: {}\n", name));
+                output.push_str(&format!("status: {}\n", status));
+                if let Some(desc) = description {
+                    output.push_str(&format!("description: {}\n", desc));
+                }
+                output.push_str("</project>\n");
+            }
+            SearchResult::Task {
+                id,
+                title,
+                description,
+                status,
+                priority,
+                project_id,
+            } => {
+                output.push_str("<task>\n");
+                output.push_str(&format!("id: {}\n", id));
+                output.push_str(&format!("title: {}\n", title));
+                output.push_str(&format!("status: {}\n", status));
+                output.push_str(&format!("priority: {}\n", priority));
+                output.push_str(&format!("project: {}\n", project_id));
+                if let Some(desc) = description {
+                    output.push_str(&format!("description: {}\n", desc));
+                }
+                output.push_str("</task>\n");
+            }
+        }
+    }
+
+    output.push_str("</search_results>\n");
+    output
+}
+
 // Helper function
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() > max_len {

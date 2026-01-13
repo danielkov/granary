@@ -308,17 +308,40 @@ echo "List projects (including archived):"
 granary projects --all
 
 # =============================================================================
-# 26. Handoff generation
+# 26. Search functionality
 # =============================================================================
 echo ""
-echo "=== 26. Generate Handoff ==="
+echo "=== 26. Search Functionality ==="
+
+echo "Search for projects by name:"
+granary search "Backend"
+
+echo ""
+echo "Search for tasks by title:"
+granary search "authentication"
+
+echo ""
+echo "Search with JSON output:"
+granary search "API" --json | head -20
+
+echo ""
+echo "Search with no results:"
+granary search "nonexistent-xyz-12345"
+
+echo "Search tests passed."
+
+# =============================================================================
+# 27. Handoff generation
+# =============================================================================
+echo ""
+echo "=== 27. Generate Handoff ==="
 granary handoff --to "Review Agent" --tasks "$TASK2_ID,$TASK3_ID" --constraints "Focus on security" --acceptance-criteria "All tests pass"
 
 # =============================================================================
-# 27. Close session
+# 28. Close session
 # =============================================================================
 echo ""
-echo "=== 27. Close Session ==="
+echo "=== 28. Close Session ==="
 granary session close --summary "Completed database schema, auth in progress"
 echo "Session closed."
 
@@ -327,10 +350,10 @@ echo "List all sessions:"
 granary sessions --all
 
 # =============================================================================
-# 28. Verify final state
+# 29. Verify final state
 # =============================================================================
 echo ""
-echo "=== 28. Final State ==="
+echo "=== 29. Final State ==="
 echo "Projects:"
 granary projects --all
 

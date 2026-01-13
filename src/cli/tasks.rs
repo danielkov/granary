@@ -255,7 +255,7 @@ async fn handle_deps(
 }
 
 /// Get next actionable task
-pub async fn next_task(include_reason: bool, format: OutputFormat) -> Result<()> {
+pub async fn next_task(include_reason: bool, all: bool, format: OutputFormat) -> Result<()> {
     let workspace = Workspace::find()?;
     let pool = workspace.pool().await?;
 
@@ -267,16 +267,24 @@ pub async fn next_task(include_reason: bool, format: OutputFormat) -> Result<()>
         None
     };
 
-    let task = services::get_next_task(&pool, project_ids.as_deref()).await?;
-
-    let reason = if include_reason {
-        Some("Selected based on: priority, due date, creation time; all dependencies satisfied")
-    } else {
-        None
-    };
-
     let formatter = Formatter::new(format);
-    println!("{}", formatter.format_next_task(task.as_ref(), reason));
+
+    if all {
+        // Get all available tasks
+        let tasks = services::get_all_next_tasks(&pool, project_ids.as_deref()).await?;
+        println!("{}", formatter.format_tasks(&tasks));
+    } else {
+        // Get single next task
+        let task = services::get_next_task(&pool, project_ids.as_deref()).await?;
+
+        let reason = if include_reason {
+            Some("Selected based on: priority, due date, creation time; all dependencies satisfied")
+        } else {
+            None
+        };
+
+        println!("{}", formatter.format_next_task(task.as_ref(), reason));
+    }
 
     Ok(())
 }
