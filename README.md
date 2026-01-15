@@ -1,6 +1,6 @@
 # Granary
 
-A CLI context hub for agentic work. Granary helps LLM agents and orchestrators manage projects, tasks, sessions, and context in a structured, machine-readable way.
+A CLI context hub for agentic work. Granary supercharges your agentic workflows. It seamlessly integrates into your existing AI tools and teaches them how to share and manage context more efficiently.
 
 ## Features
 
@@ -9,6 +9,40 @@ A CLI context hub for agentic work. Granary helps LLM agents and orchestrators m
 - **Local-first**: All state stored locally (SQLite), no network dependency
 - **Concurrency-tolerant**: Task claiming with leases for multi-agent safety
 - **Context packs**: Generate summaries and handoffs optimized for LLM context windows
+
+## Getting started for Claude Code
+
+1. Add plugin
+
+```sh
+claude plugin marketplace add danielkov/granary
+```
+
+2. Launch Claude and verify skills are available with `/skills` - you should see something like:
+
+```sh
+  granary-orchestrate · ~43 tokens
+  granary-initiative-planner · ~40 tokens
+  granary-plan-work · ~38 tokens
+  granary-setup · ~33 tokens
+  granary-execute-task · ~28 tokens
+```
+
+3. Prompt Claude to `set up granary for this project`
+
+Claude will install and initialize `granary` in your project.
+
+## How to get the most out of Granary
+
+Granary works best when used with the Claude Code skills. The skills teach Claude how to use Granary effectively.
+
+### Example workflows
+
+Use similar prompts to see Granary in action.
+
+- `use granary to plan a new audit service`
+- Once the plan is complete, you can review it with `granary summary`
+- Start implementation by telling Claude: `use granary to implement audit service`
 
 ## Installation
 
