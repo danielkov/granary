@@ -4,6 +4,7 @@ pub mod checkpoints;
 pub mod comments;
 pub mod config;
 pub mod init;
+pub mod initiatives;
 pub mod projects;
 pub mod search;
 pub mod sessions;

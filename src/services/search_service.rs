@@ -4,9 +4,20 @@ use crate::db;
 use crate::error::Result;
 use crate::models::*;
 
-/// Search both projects and tasks by query string
+/// Search initiatives, projects, and tasks by query string
 pub async fn search(pool: &SqlitePool, query: &str) -> Result<Vec<SearchResult>> {
     let mut results = Vec::new();
+
+    // Search initiatives first (highest hierarchy level)
+    let initiatives = db::search::search_initiatives(pool, query).await?;
+    for initiative in initiatives {
+        results.push(SearchResult::Initiative {
+            id: initiative.id,
+            name: initiative.name,
+            description: initiative.description,
+            status: initiative.status,
+        });
+    }
 
     // Search projects
     let projects = db::search::search_projects(pool, query).await?;

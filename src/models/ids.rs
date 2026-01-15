@@ -93,6 +93,37 @@ pub fn generate_checkpoint_id() -> String {
     format!("chkpt-{}", suffix)
 }
 
+/// Generate an initiative ID from a name
+/// Format: <slug>-<suffix>
+/// Example: "my-initiative-5h18"
+pub fn generate_initiative_id(name: &str) -> String {
+    let slug = normalize_slug(name);
+    let suffix = generate_suffix(4);
+    format!("{}-{}", slug, suffix)
+}
+
+/// Parse an initiative ID to extract the slug
+pub fn parse_initiative_slug(initiative_id: &str) -> Result<&str> {
+    // Initiative ID format: <slug>-<4char suffix>
+    // Find the last hyphen that separates slug from suffix
+    if initiative_id.len() < 5 {
+        return Err(GranaryError::InvalidId(format!(
+            "Initiative ID too short: {}",
+            initiative_id
+        )));
+    }
+
+    let suffix_start = initiative_id.len() - 4;
+    if initiative_id.as_bytes()[suffix_start - 1] != b'-' {
+        return Err(GranaryError::InvalidId(format!(
+            "Invalid initiative ID format: {}",
+            initiative_id
+        )));
+    }
+
+    Ok(&initiative_id[..suffix_start - 1])
+}
+
 /// Parse a project ID to extract the slug
 pub fn parse_project_slug(project_id: &str) -> Result<&str> {
     // Project ID format: <slug>-<4char suffix>
@@ -187,5 +218,18 @@ mod tests {
             parse_comment_id("my-project-5h18-task-42-comment-3").unwrap();
         assert_eq!(parent_id, "my-project-5h18-task-42");
         assert_eq!(comment_num, 3);
+    }
+
+    #[test]
+    fn test_generate_initiative_id() {
+        let id = generate_initiative_id("My Initiative");
+        assert!(id.starts_with("my-initiative-"));
+        assert_eq!(id.len(), "my-initiative-".len() + 4);
+    }
+
+    #[test]
+    fn test_parse_initiative_slug() {
+        let slug = parse_initiative_slug("my-initiative-5h18").unwrap();
+        assert_eq!(slug, "my-initiative");
     }
 }

@@ -1,5 +1,6 @@
 use tabled::{Table, Tabled};
 
+use crate::models::initiative::Initiative;
 use crate::models::*;
 
 #[derive(Tabled)]
@@ -369,6 +370,15 @@ struct SearchResultRow {
 impl From<&SearchResult> for SearchResultRow {
     fn from(result: &SearchResult) -> Self {
         match result {
+            SearchResult::Initiative {
+                id, name, status, ..
+            } => Self {
+                entity_type: "initiative".to_string(),
+                id: id.clone(),
+                title: truncate(name, 40),
+                status: status.clone(),
+                priority: "-".to_string(),
+            },
             SearchResult::Project {
                 id, name, status, ..
             } => Self {
@@ -419,4 +429,153 @@ fn format_date(iso_date: &str) -> String {
     } else {
         iso_date.to_string()
     }
+}
+
+#[derive(Tabled)]
+struct InitiativeRow {
+    #[tabled(rename = "ID")]
+    id: String,
+    #[tabled(rename = "Name")]
+    name: String,
+    #[tabled(rename = "Status")]
+    status: String,
+    #[tabled(rename = "Owner")]
+    owner: String,
+    #[tabled(rename = "Created")]
+    created: String,
+}
+
+impl From<&Initiative> for InitiativeRow {
+    fn from(i: &Initiative) -> Self {
+        Self {
+            id: i.id.clone(),
+            name: truncate(&i.name, 30),
+            status: i.status.clone(),
+            owner: i.owner.clone().unwrap_or_else(|| "-".to_string()),
+            created: format_date(&i.created_at),
+        }
+    }
+}
+
+pub fn format_initiative(initiative: &Initiative) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("Initiative: {}\n", initiative.name));
+    output.push_str(&format!("  ID:          {}\n", initiative.id));
+    output.push_str(&format!("  Status:      {}\n", initiative.status));
+    output.push_str(&format!(
+        "  Owner:       {}\n",
+        initiative.owner.as_deref().unwrap_or("-")
+    ));
+    if let Some(desc) = &initiative.description {
+        output.push_str(&format!("  Description: {}\n", desc));
+    }
+    let tags = initiative.tags_vec();
+    if !tags.is_empty() {
+        output.push_str(&format!("  Tags:        {}\n", tags.join(", ")));
+    }
+    output.push_str(&format!("  Created:     {}\n", initiative.created_at));
+    output.push_str(&format!("  Updated:     {}\n", initiative.updated_at));
+    output
+}
+
+pub fn format_initiatives(initiatives: &[Initiative]) -> String {
+    if initiatives.is_empty() {
+        return "No initiatives found.\n".to_string();
+    }
+    let rows: Vec<InitiativeRow> = initiatives.iter().map(InitiativeRow::from).collect();
+    Table::new(rows).to_string()
+}
+
+// === Initiative Summary ===
+
+use crate::models::initiative::InitiativeSummary;
+
+/// Format an initiative summary as a table/text output
+pub fn format_initiative_summary(summary: &InitiativeSummary) -> String {
+    let mut output = String::new();
+
+    // Header with initiative info
+    output.push_str(&format!("Initiative: {}\n", summary.initiative.name));
+    output.push_str(&format!("  ID: {}\n", summary.initiative.id));
+    if let Some(desc) = &summary.initiative.description {
+        output.push_str(&format!("  Description: {}\n", desc));
+    }
+    output.push('\n');
+
+    // Progress bar
+    let progress_bar = create_progress_bar(summary.status.percent_complete, 30);
+    output.push_str(&format!(
+        "Progress: {} {:.1}%\n",
+        progress_bar, summary.status.percent_complete
+    ));
+    output.push('\n');
+
+    // Status summary
+    output.push_str("Status:\n");
+    output.push_str(&format!(
+        "  Projects: {} total, {} complete, {} blocked\n",
+        summary.status.total_projects,
+        summary.status.completed_projects,
+        summary.status.blocked_projects
+    ));
+    output.push_str(&format!(
+        "  Tasks:    {} total ({} done, {} in progress, {} todo, {} blocked)\n",
+        summary.status.total_tasks,
+        summary.status.tasks_done,
+        summary.status.tasks_in_progress,
+        summary.status.tasks_todo,
+        summary.status.tasks_blocked
+    ));
+    output.push('\n');
+
+    // Projects breakdown
+    if !summary.projects.is_empty() {
+        output.push_str("Projects:\n");
+        for proj in &summary.projects {
+            let status = if proj.done_count == proj.task_count && proj.task_count > 0 {
+                "[done]"
+            } else if proj.blocked {
+                "[blocked]"
+            } else {
+                "[active]"
+            };
+            output.push_str(&format!(
+                "  {} {} ({}/{} tasks)\n",
+                status, proj.name, proj.done_count, proj.task_count
+            ));
+        }
+        output.push('\n');
+    }
+
+    // Blockers
+    if !summary.blockers.is_empty() {
+        output.push_str("Blockers:\n");
+        for blocker in &summary.blockers {
+            output.push_str(&format!(
+                "  - [{}] {}: {}\n",
+                blocker.blocker_type, blocker.project_name, blocker.description
+            ));
+        }
+        output.push('\n');
+    }
+
+    // Next actions
+    if !summary.next_actions.is_empty() {
+        output.push_str("Next Actions:\n");
+        for action in &summary.next_actions {
+            output.push_str(&format!(
+                "  - [{}] {} > {}\n",
+                action.priority, action.project_name, action.task_title
+            ));
+        }
+    }
+
+    output
+}
+
+/// Create a simple ASCII progress bar
+fn create_progress_bar(percent: f32, width: usize) -> String {
+    let filled = ((percent / 100.0) * width as f32).round() as usize;
+    let empty = width.saturating_sub(filled);
+    format!("[{}{}]", "=".repeat(filled), " ".repeat(empty))
 }

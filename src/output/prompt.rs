@@ -3,6 +3,7 @@
 //! This format is designed to be machine-readable by LLMs while remaining
 //! human-readable. It uses a consistent structure that's easy to parse.
 
+use crate::models::initiative::Initiative;
 use crate::models::*;
 use crate::output::json::{ContextOutput, HandoffOutput, SummaryOutput};
 
@@ -553,6 +554,21 @@ pub fn format_search_results(results: &[SearchResult]) -> String {
 
     for result in results {
         match result {
+            SearchResult::Initiative {
+                id,
+                name,
+                description,
+                status,
+            } => {
+                output.push_str("<initiative>\n");
+                output.push_str(&format!("id: {}\n", id));
+                output.push_str(&format!("name: {}\n", name));
+                output.push_str(&format!("status: {}\n", status));
+                if let Some(desc) = description {
+                    output.push_str(&format!("description: {}\n", desc));
+                }
+                output.push_str("</initiative>\n");
+            }
             SearchResult::Project {
                 id,
                 name,
@@ -601,4 +617,87 @@ fn truncate(s: &str, max_len: usize) -> String {
     } else {
         s.to_string()
     }
+}
+
+/// Format an initiative for LLM consumption
+pub fn format_initiative(initiative: &Initiative) -> String {
+    let mut output = String::new();
+    output.push_str("<initiative>\n");
+    output.push_str(&format!("id: {}\n", initiative.id));
+    output.push_str(&format!("name: {}\n", initiative.name));
+    output.push_str(&format!("status: {}\n", initiative.status));
+    if let Some(owner) = &initiative.owner {
+        output.push_str(&format!("owner: {}\n", owner));
+    }
+    if let Some(desc) = &initiative.description {
+        output.push_str(&format!("description: {}\n", desc));
+    }
+    let tags = initiative.tags_vec();
+    if !tags.is_empty() {
+        output.push_str(&format!("tags: {}\n", tags.join(", ")));
+    }
+    output.push_str("</initiative>\n");
+    output
+}
+
+pub fn format_initiatives(initiatives: &[Initiative]) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("<initiatives count=\"{}\">\n", initiatives.len()));
+    for initiative in initiatives {
+        output.push_str(&format!(
+            "  - {} ({}) [{}]\n",
+            initiative.name, initiative.id, initiative.status
+        ));
+    }
+    output.push_str("</initiatives>\n");
+    output
+}
+
+// === Initiative Summary ===
+
+use crate::models::initiative::InitiativeSummary;
+
+/// Format an initiative summary for LLM consumption.
+/// Optimized for low token count while conveying actionable information.
+pub fn format_initiative_summary(summary: &InitiativeSummary) -> String {
+    let mut lines = Vec::new();
+
+    // Header - compact
+    lines.push(format!("# Initiative: {}", summary.initiative.name));
+    lines.push(format!(
+        "Progress: {:.0}% ({}/{} tasks)",
+        summary.status.percent_complete, summary.status.tasks_done, summary.status.total_tasks
+    ));
+    lines.push(format!(
+        "Projects: {} total, {} complete, {} blocked",
+        summary.status.total_projects,
+        summary.status.completed_projects,
+        summary.status.blocked_projects
+    ));
+
+    // Blockers - if any
+    if !summary.blockers.is_empty() {
+        lines.push(String::new());
+        lines.push("## Blockers".to_string());
+        for b in &summary.blockers {
+            lines.push(format!(
+                "- [{}] {}: {}",
+                b.blocker_type, b.project_name, b.description
+            ));
+        }
+    }
+
+    // Next actions - compact list
+    if !summary.next_actions.is_empty() {
+        lines.push(String::new());
+        lines.push("## Next Actions".to_string());
+        for a in &summary.next_actions {
+            lines.push(format!(
+                "- [{}] {} > {}",
+                a.priority, a.project_name, a.task_title
+            ));
+        }
+    }
+
+    lines.join("\n")
 }

@@ -173,6 +173,36 @@ impl Formatter {
             OutputFormat::Table => table::format_search_results(results),
         }
     }
+
+    pub fn format_initiative(&self, initiative: &initiative::Initiative) -> String {
+        match self.format {
+            OutputFormat::Json => json::format_initiative(initiative),
+            OutputFormat::Yaml => yaml_format_initiative(initiative),
+            OutputFormat::Md => md_format_initiative(initiative),
+            OutputFormat::Prompt => prompt::format_initiative(initiative),
+            OutputFormat::Table => table::format_initiative(initiative),
+        }
+    }
+
+    pub fn format_initiatives(&self, initiatives: &[initiative::Initiative]) -> String {
+        match self.format {
+            OutputFormat::Json => json::format_initiatives(initiatives),
+            OutputFormat::Yaml => yaml_format_initiatives(initiatives),
+            OutputFormat::Md => md_format_initiatives(initiatives),
+            OutputFormat::Prompt => prompt::format_initiatives(initiatives),
+            OutputFormat::Table => table::format_initiatives(initiatives),
+        }
+    }
+
+    pub fn format_initiative_summary(&self, summary: &initiative::InitiativeSummary) -> String {
+        match self.format {
+            OutputFormat::Json => json::format_initiative_summary(summary),
+            OutputFormat::Yaml => yaml_format_initiative_summary(summary),
+            OutputFormat::Md => md_format_initiative_summary(summary),
+            OutputFormat::Prompt => prompt::format_initiative_summary(summary),
+            OutputFormat::Table => table::format_initiative_summary(summary),
+        }
+    }
 }
 
 // YAML formatters (using serde_yaml)
@@ -379,10 +409,30 @@ fn yaml_format_search_results(results: &[SearchResult]) -> String {
     serde_yaml::to_string(results).unwrap_or_else(|_| "Error formatting YAML".to_string())
 }
 
+fn yaml_format_initiative(initiative: &initiative::Initiative) -> String {
+    serde_yaml::to_string(initiative).unwrap_or_else(|_| "Error formatting YAML".to_string())
+}
+
+fn yaml_format_initiatives(initiatives: &[initiative::Initiative]) -> String {
+    serde_yaml::to_string(initiatives).unwrap_or_else(|_| "Error formatting YAML".to_string())
+}
+
 fn md_format_search_results(results: &[SearchResult]) -> String {
     let mut md = String::from("# Search Results\n\n");
     for result in results {
         match result {
+            SearchResult::Initiative {
+                id,
+                name,
+                description,
+                status,
+            } => {
+                md.push_str(&format!("- **[INITIATIVE]** {} (`{}`)", name, id));
+                if let Some(desc) = description {
+                    md.push_str(&format!(" - {}", desc));
+                }
+                md.push_str(&format!(" [{}]\n", status));
+            }
             SearchResult::Project {
                 id,
                 name,
@@ -411,5 +461,117 @@ fn md_format_search_results(results: &[SearchResult]) -> String {
             }
         }
     }
+    md
+}
+
+fn md_format_initiative(initiative: &initiative::Initiative) -> String {
+    let mut md = String::new();
+    md.push_str(&format!("# {}\n\n", initiative.name));
+    md.push_str(&format!("**ID:** `{}`\n", initiative.id));
+    md.push_str(&format!("**Status:** {}\n", initiative.status));
+    if let Some(owner) = &initiative.owner {
+        md.push_str(&format!("**Owner:** {}\n", owner));
+    }
+    if let Some(desc) = &initiative.description {
+        md.push_str(&format!("\n{}\n", desc));
+    }
+    let tags = initiative.tags_vec();
+    if !tags.is_empty() {
+        md.push_str(&format!("\n**Tags:** {}\n", tags.join(", ")));
+    }
+    md
+}
+
+fn md_format_initiatives(initiatives: &[initiative::Initiative]) -> String {
+    let mut md = String::from("# Initiatives\n\n");
+    for initiative in initiatives {
+        md.push_str(&format!(
+            "- **{}** (`{}`) - {}\n",
+            initiative.name, initiative.id, initiative.status
+        ));
+    }
+    md
+}
+
+fn yaml_format_initiative_summary(summary: &initiative::InitiativeSummary) -> String {
+    serde_yaml::to_string(summary).unwrap_or_else(|_| "Error formatting YAML".to_string())
+}
+
+fn md_format_initiative_summary(summary: &initiative::InitiativeSummary) -> String {
+    let mut md = String::new();
+
+    // Header
+    md.push_str(&format!(
+        "# Initiative Summary: {}\n\n",
+        summary.initiative.name
+    ));
+    md.push_str(&format!("**ID:** `{}`\n", summary.initiative.id));
+    if let Some(desc) = &summary.initiative.description {
+        md.push_str(&format!("**Description:** {}\n", desc));
+    }
+    md.push('\n');
+
+    // Progress
+    md.push_str(&format!(
+        "## Progress: {:.1}%\n\n",
+        summary.status.percent_complete
+    ));
+    md.push_str(&format!(
+        "- **Projects:** {} total, {} complete, {} blocked\n",
+        summary.status.total_projects,
+        summary.status.completed_projects,
+        summary.status.blocked_projects
+    ));
+    md.push_str(&format!(
+        "- **Tasks:** {}/{} complete ({} in progress, {} todo, {} blocked)\n\n",
+        summary.status.tasks_done,
+        summary.status.total_tasks,
+        summary.status.tasks_in_progress,
+        summary.status.tasks_todo,
+        summary.status.tasks_blocked
+    ));
+
+    // Projects breakdown
+    if !summary.projects.is_empty() {
+        md.push_str("## Projects\n\n");
+        for proj in &summary.projects {
+            let status = if proj.done_count == proj.task_count && proj.task_count > 0 {
+                "[x]"
+            } else if proj.blocked {
+                "[ ] (blocked)"
+            } else {
+                "[ ]"
+            };
+            md.push_str(&format!(
+                "- {} **{}** ({}/{} tasks)\n",
+                status, proj.name, proj.done_count, proj.task_count
+            ));
+        }
+        md.push('\n');
+    }
+
+    // Blockers
+    if !summary.blockers.is_empty() {
+        md.push_str("## Blockers\n\n");
+        for b in &summary.blockers {
+            md.push_str(&format!(
+                "- **[{}]** {}: {}\n",
+                b.blocker_type, b.project_name, b.description
+            ));
+        }
+        md.push('\n');
+    }
+
+    // Next actions
+    if !summary.next_actions.is_empty() {
+        md.push_str("## Next Actions\n\n");
+        for a in &summary.next_actions {
+            md.push_str(&format!(
+                "- `[{}]` {} > {}\n",
+                a.priority, a.project_name, a.task_title
+            ));
+        }
+    }
+
     md
 }
