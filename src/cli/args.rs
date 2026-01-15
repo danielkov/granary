@@ -7,7 +7,7 @@ use crate::output::OutputFormat;
 /// Granary - A CLI context hub for agentic work
 #[derive(Parser)]
 #[command(name = "granary")]
-#[command(author, version, about, long_about = None)]
+#[command(author, version = crate::cli::update::version_with_update_notice(), about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -273,6 +273,13 @@ pub enum Commands {
 
         #[command(subcommand)]
         action: Option<InitiativeAction>,
+    },
+
+    /// Update granary to the latest version
+    Update {
+        /// Check for updates without installing
+        #[arg(long)]
+        check: bool,
     },
 }
 

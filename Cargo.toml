@@ -1,6 +1,6 @@
 [package]
 name = "granary"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 description = "A CLI context hub for agentic work"
 license = "MIT"
@@ -37,6 +37,12 @@ uuid = { version = "1", features = ["v4"] }
 
 # Output formatting
 tabled = "0.20"
+
+# HTTP client (for update checks)
+reqwest = { version = "0.12", features = ["json"] }
+
+# Version comparison
+semver = "1"
 
 [dev-dependencies]
 tempfile = "3"

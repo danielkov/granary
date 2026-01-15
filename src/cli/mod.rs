@@ -11,5 +11,6 @@ pub mod sessions;
 pub mod show;
 pub mod summary;
 pub mod tasks;
+pub mod update;
 
 pub use args::*;
