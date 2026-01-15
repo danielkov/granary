@@ -255,6 +255,25 @@ pub enum Commands {
         /// Search query
         query: String,
     },
+
+    /// List all initiatives or create a new one
+    Initiatives {
+        #[command(subcommand)]
+        action: Option<InitiativesAction>,
+
+        /// Include archived initiatives (for list)
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Work with a specific initiative
+    Initiative {
+        /// Initiative ID
+        id: String,
+
+        #[command(subcommand)]
+        action: Option<InitiativeAction>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -307,6 +326,33 @@ pub enum ProjectAction {
         #[command(subcommand)]
         action: Option<ProjectTasksAction>,
     },
+
+    /// Manage project dependencies
+    Deps {
+        #[command(subcommand)]
+        action: ProjectDepsAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ProjectDepsAction {
+    /// Add a dependency (this project depends on another)
+    Add {
+        /// Project ID to depend on
+        depends_on_id: String,
+    },
+
+    /// Remove a dependency
+    Rm {
+        /// Project ID to remove from dependencies
+        depends_on_id: String,
+    },
+
+    /// List all dependencies
+    List,
+
+    /// Show dependency graph
+    Graph,
 }
 
 #[derive(Subcommand)]
@@ -687,4 +733,80 @@ pub enum SteeringAction {
         #[arg(long = "for-session", conflicts_with_all = ["project", "task"])]
         for_session: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum InitiativesAction {
+    /// Create a new initiative
+    Create {
+        /// Initiative name
+        name: String,
+
+        /// Initiative description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// Initiative owner
+        #[arg(long)]
+        owner: Option<String>,
+
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum InitiativeAction {
+    /// Update initiative
+    Update {
+        /// New name
+        #[arg(long)]
+        name: Option<String>,
+
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// New owner
+        #[arg(long)]
+        owner: Option<String>,
+
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+
+    /// Archive initiative
+    Archive,
+
+    /// List projects in initiative
+    Projects,
+
+    /// Add project to initiative
+    AddProject {
+        /// Project ID
+        project_id: String,
+    },
+
+    /// Remove project from initiative
+    RemoveProject {
+        /// Project ID
+        project_id: String,
+    },
+
+    /// Show dependency graph between projects in this initiative (Mermaid output)
+    Graph,
+
+    /// Get the next actionable task(s) across this initiative.
+    /// Returns tasks that are unblocked at both the project and task level.
+    Next {
+        /// Return all actionable tasks instead of just the next one
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Show a high-level summary of the initiative.
+    /// Includes progress, blockers, and next actions.
+    Summary,
 }

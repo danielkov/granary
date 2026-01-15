@@ -331,6 +331,155 @@ granary search "nonexistent-xyz-12345"
 echo "Search tests passed."
 
 # =============================================================================
+# 26b. Project Dependencies
+# =============================================================================
+echo ""
+echo "=== 26b. Project Dependencies ==="
+
+echo "Add dependency (Frontend depends on Backend):"
+granary project "$PROJECT2_ID" deps add "$PROJECT1_ID"
+echo "Project dependency added."
+
+echo ""
+echo "List project dependencies:"
+granary project "$PROJECT2_ID" deps list
+
+echo ""
+echo "Show project dependency graph:"
+granary project "$PROJECT2_ID" deps graph
+
+echo ""
+echo "Remove project dependency:"
+granary project "$PROJECT2_ID" deps rm "$PROJECT1_ID"
+echo "Project dependency removed."
+
+echo "Project dependency tests passed."
+
+# =============================================================================
+# 26c. Initiatives CRUD
+# =============================================================================
+echo ""
+echo "=== 26c. Initiatives CRUD ==="
+
+echo "Create initiative:"
+INITIATIVE1_OUTPUT=$(granary initiatives create "Q1 Release" --description "First quarter release initiative" --owner "Product Team" --json)
+INITIATIVE1_ID=$(echo "$INITIATIVE1_OUTPUT" | tr -d ' \n' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+echo "Created initiative: $INITIATIVE1_ID"
+
+INITIATIVE2_OUTPUT=$(granary initiatives create "Tech Debt" --description "Technical debt reduction" --json)
+INITIATIVE2_ID=$(echo "$INITIATIVE2_OUTPUT" | tr -d ' \n' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+echo "Created initiative: $INITIATIVE2_ID"
+
+echo ""
+echo "List initiatives:"
+granary initiatives
+
+echo ""
+echo "Show initiative:"
+granary show "$INITIATIVE1_ID"
+
+echo ""
+echo "Update initiative:"
+granary initiative "$INITIATIVE1_ID" update --name "Q1 2026 Release" --description "Updated description"
+echo "Initiative updated."
+
+echo "Initiative CRUD tests passed."
+
+# =============================================================================
+# 26d. Initiative-Project Relationships
+# =============================================================================
+echo ""
+echo "=== 26d. Initiative-Project Relationships ==="
+
+echo "Add projects to initiative:"
+granary initiative "$INITIATIVE1_ID" add-project "$PROJECT1_ID"
+granary initiative "$INITIATIVE1_ID" add-project "$PROJECT2_ID"
+echo "Projects added to initiative."
+
+echo ""
+echo "List projects in initiative:"
+granary initiative "$INITIATIVE1_ID" projects
+
+echo ""
+echo "Remove project from initiative:"
+granary initiative "$INITIATIVE1_ID" remove-project "$PROJECT2_ID"
+echo "Project removed from initiative."
+
+echo ""
+echo "Re-add project for further tests:"
+granary initiative "$INITIATIVE1_ID" add-project "$PROJECT2_ID"
+
+echo "Initiative-project relationship tests passed."
+
+# =============================================================================
+# 26e. Initiative Next Command
+# =============================================================================
+echo ""
+echo "=== 26e. Initiative Next Command ==="
+
+echo "Get next task in initiative:"
+granary initiative "$INITIATIVE1_ID" next || echo "(No actionable tasks or expected output)"
+
+echo ""
+echo "Get all next tasks in initiative:"
+granary initiative "$INITIATIVE1_ID" next --all || echo "(No actionable tasks or expected output)"
+
+echo "Initiative next command tests passed."
+
+# =============================================================================
+# 26f. Initiative Summary
+# =============================================================================
+echo ""
+echo "=== 26f. Initiative Summary ==="
+
+echo "Initiative summary (table format):"
+granary initiative "$INITIATIVE1_ID" summary
+
+echo ""
+echo "Initiative summary (JSON format):"
+granary initiative "$INITIATIVE1_ID" summary --format json | head -30
+
+echo ""
+echo "Initiative summary (prompt format):"
+granary initiative "$INITIATIVE1_ID" summary --format prompt
+
+echo "Initiative summary tests passed."
+
+# =============================================================================
+# 26g. Initiative Dependency Graph
+# =============================================================================
+echo ""
+echo "=== 26g. Initiative Dependency Graph ==="
+
+echo "Add project dependency within initiative:"
+granary project "$PROJECT2_ID" deps add "$PROJECT1_ID"
+
+echo ""
+echo "Initiative dependency graph (Mermaid):"
+granary initiative "$INITIATIVE1_ID" graph
+
+echo "Initiative dependency graph tests passed."
+
+# =============================================================================
+# 26h. Archive Initiative
+# =============================================================================
+echo ""
+echo "=== 26h. Archive Initiative ==="
+
+granary initiative "$INITIATIVE2_ID" archive
+echo "Initiative archived."
+
+echo ""
+echo "List initiatives (including archived):"
+granary initiatives --all
+
+echo ""
+echo "Search for initiatives:"
+granary search "Q1"
+
+echo "Initiative archive tests passed."
+
+# =============================================================================
 # 27. Handoff generation
 # =============================================================================
 echo ""

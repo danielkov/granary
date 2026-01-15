@@ -1,4 +1,5 @@
-use crate::cli::args::{ProjectAction, ProjectTasksAction, ProjectsAction};
+use crate::cli::args::{ProjectAction, ProjectDepsAction, ProjectTasksAction, ProjectsAction};
+use crate::db;
 use crate::error::Result;
 use crate::models::*;
 use crate::output::{Formatter, OutputFormat};
@@ -130,6 +131,106 @@ pub async fn project(id: &str, action: Option<ProjectAction>, format: OutputForm
                 }
             }
         }
+
+        Some(ProjectAction::Deps { action }) => {
+            handle_deps_action(&pool, id, action, format).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle project dependency actions
+async fn handle_deps_action(
+    pool: &sqlx::SqlitePool,
+    project_id: &str,
+    action: ProjectDepsAction,
+    format: OutputFormat,
+) -> Result<()> {
+    let formatter = Formatter::new(format);
+
+    match action {
+        ProjectDepsAction::Add { depends_on_id } => {
+            // Verify both projects exist
+            services::get_project(pool, project_id).await?;
+            services::get_project(pool, &depends_on_id).await?;
+
+            db::project_dependencies::add(pool, project_id, &depends_on_id).await?;
+            println!(
+                "Added dependency: {} depends on {}",
+                project_id, depends_on_id
+            );
+        }
+
+        ProjectDepsAction::Rm { depends_on_id } => {
+            let removed =
+                db::project_dependencies::remove(pool, project_id, &depends_on_id).await?;
+            if removed {
+                println!(
+                    "Removed dependency: {} no longer depends on {}",
+                    project_id, depends_on_id
+                );
+            } else {
+                println!(
+                    "No dependency found between {} and {}",
+                    project_id, depends_on_id
+                );
+            }
+        }
+
+        ProjectDepsAction::List => {
+            let deps = db::project_dependencies::list(pool, project_id).await?;
+            if deps.is_empty() {
+                println!("No dependencies for project {}", project_id);
+            } else {
+                println!("Dependencies for {}:", project_id);
+                println!("{}", formatter.format_projects(&deps));
+            }
+        }
+
+        ProjectDepsAction::Graph => {
+            print_dependency_graph(pool, project_id).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Print a dependency graph showing both what this project depends on and what depends on it
+async fn print_dependency_graph(pool: &sqlx::SqlitePool, project_id: &str) -> Result<()> {
+    let project = services::get_project(pool, project_id).await?;
+    let deps = db::project_dependencies::list(pool, project_id).await?;
+    let dependents = db::project_dependencies::list_dependents(pool, project_id).await?;
+    let unmet = db::project_dependencies::get_unmet(pool, project_id).await?;
+
+    println!("Dependency graph for: {} ({})", project.name, project_id);
+    println!();
+
+    if !deps.is_empty() {
+        println!("This project depends on:");
+        for dep in &deps {
+            let status_marker = if unmet.iter().any(|u| u.id == dep.id) {
+                " [UNMET - has incomplete tasks]"
+            } else {
+                " [OK]"
+            };
+            println!("  -> {} ({}){}", dep.name, dep.id, status_marker);
+        }
+        println!();
+    } else {
+        println!("This project has no dependencies.");
+        println!();
+    }
+
+    if !dependents.is_empty() {
+        println!("Projects that depend on this:");
+        for dep in &dependents {
+            println!("  <- {} ({})", dep.name, dep.id);
+        }
+        println!();
+    } else {
+        println!("No projects depend on this project.");
+        println!();
     }
 
     Ok(())

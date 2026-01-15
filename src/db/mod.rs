@@ -92,6 +92,245 @@ pub mod projects {
     }
 }
 
+/// Database operations for initiatives
+pub mod initiatives {
+    use super::*;
+    use crate::models::ids;
+    use crate::models::initiative::{CreateInitiative, Initiative, UpdateInitiative};
+
+    pub async fn create(pool: &SqlitePool, input: &CreateInitiative) -> Result<Initiative> {
+        let id = ids::generate_initiative_id(&input.name);
+        let slug = ids::normalize_slug(&input.name);
+        let now = chrono::Utc::now().to_rfc3339();
+        let tags_json = if input.tags.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(&input.tags)?)
+        };
+
+        sqlx::query(
+            r#"
+            INSERT INTO initiatives (id, slug, name, description, owner, status, tags, created_at, updated_at, version)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, 1)
+            "#,
+        )
+        .bind(&id)
+        .bind(&slug)
+        .bind(&input.name)
+        .bind(&input.description)
+        .bind(&input.owner)
+        .bind(&tags_json)
+        .bind(&now)
+        .bind(&now)
+        .execute(pool)
+        .await?;
+
+        // Fetch the created initiative
+        get(pool, &id).await?.ok_or_else(|| {
+            crate::error::GranaryError::Conflict(
+                "Failed to create initiative: could not retrieve after insert".to_string(),
+            )
+        })
+    }
+
+    pub async fn get(pool: &SqlitePool, id: &str) -> Result<Option<Initiative>> {
+        let initiative = sqlx::query_as::<_, Initiative>("SELECT * FROM initiatives WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+        Ok(initiative)
+    }
+
+    pub async fn list(pool: &SqlitePool, include_archived: bool) -> Result<Vec<Initiative>> {
+        let initiatives = if include_archived {
+            sqlx::query_as::<_, Initiative>("SELECT * FROM initiatives ORDER BY created_at DESC")
+                .fetch_all(pool)
+                .await?
+        } else {
+            sqlx::query_as::<_, Initiative>(
+                "SELECT * FROM initiatives WHERE status = 'active' ORDER BY created_at DESC",
+            )
+            .fetch_all(pool)
+            .await?
+        };
+        Ok(initiatives)
+    }
+
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        update: &UpdateInitiative,
+        expected_version: i64,
+    ) -> Result<Option<Initiative>> {
+        // Build dynamic update - we need to update only the fields that are Some
+        // Using optimistic locking with version check
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // First get the current initiative to merge updates
+        let current = match get(pool, id).await? {
+            Some(i) => i,
+            None => return Ok(None),
+        };
+
+        // Check version for optimistic locking
+        if current.version != expected_version {
+            return Err(crate::error::GranaryError::VersionMismatch {
+                expected: expected_version,
+                found: current.version,
+            });
+        }
+
+        // Merge updates with current values
+        let name = update.name.as_ref().unwrap_or(&current.name);
+        let description = update.description.clone().or(current.description);
+        let owner = update.owner.clone().or(current.owner);
+        let status = update
+            .status
+            .as_ref()
+            .map(|s| s.as_str().to_string())
+            .unwrap_or(current.status);
+        let tags_json = update
+            .tags
+            .as_ref()
+            .map(|t| serde_json::to_string(t).ok())
+            .unwrap_or(current.tags);
+
+        let result = sqlx::query(
+            r#"
+            UPDATE initiatives
+            SET name = ?, description = ?, owner = ?, status = ?, tags = ?,
+                updated_at = ?, version = version + 1
+            WHERE id = ? AND version = ?
+            "#,
+        )
+        .bind(name)
+        .bind(&description)
+        .bind(&owner)
+        .bind(&status)
+        .bind(&tags_json)
+        .bind(&now)
+        .bind(id)
+        .bind(expected_version)
+        .execute(pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            // Version conflict (race condition)
+            return Err(crate::error::GranaryError::VersionMismatch {
+                expected: expected_version,
+                found: current.version,
+            });
+        }
+
+        get(pool, id).await
+    }
+
+    pub async fn archive(pool: &SqlitePool, id: &str) -> Result<bool> {
+        let result =
+            sqlx::query("UPDATE initiatives SET status = 'archived', updated_at = ? WHERE id = ?")
+                .bind(chrono::Utc::now().to_rfc3339())
+                .bind(id)
+                .execute(pool)
+                .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn delete(pool: &SqlitePool, id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM initiatives WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+}
+
+/// Database operations for initiative-project relationships
+pub mod initiative_projects {
+    use super::*;
+    use crate::models::ProjectDependency;
+    use crate::models::initiative::Initiative;
+
+    /// Add a project to an initiative
+    pub async fn add(pool: &SqlitePool, initiative_id: &str, project_id: &str) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT OR IGNORE INTO initiative_projects (initiative_id, project_id, added_at) VALUES (?, ?, ?)",
+        )
+        .bind(initiative_id)
+        .bind(project_id)
+        .bind(&now)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Remove a project from an initiative
+    pub async fn remove(pool: &SqlitePool, initiative_id: &str, project_id: &str) -> Result<bool> {
+        let result = sqlx::query(
+            "DELETE FROM initiative_projects WHERE initiative_id = ? AND project_id = ?",
+        )
+        .bind(initiative_id)
+        .bind(project_id)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// List all projects in an initiative
+    pub async fn list_projects(pool: &SqlitePool, initiative_id: &str) -> Result<Vec<Project>> {
+        let projects = sqlx::query_as::<_, Project>(
+            r#"
+            SELECT p.* FROM projects p
+            JOIN initiative_projects ip ON p.id = ip.project_id
+            WHERE ip.initiative_id = ?
+            ORDER BY p.name ASC
+            "#,
+        )
+        .bind(initiative_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(projects)
+    }
+
+    /// List all initiatives that contain a project
+    pub async fn list_initiatives(pool: &SqlitePool, project_id: &str) -> Result<Vec<Initiative>> {
+        let initiatives = sqlx::query_as::<_, Initiative>(
+            r#"
+            SELECT i.* FROM initiatives i
+            JOIN initiative_projects ip ON i.id = ip.initiative_id
+            WHERE ip.project_id = ?
+            ORDER BY i.name ASC
+            "#,
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(initiatives)
+    }
+
+    /// Get all project dependencies within an initiative
+    /// Returns dependencies where both the source and target projects are in the initiative
+    pub async fn list_internal_dependencies(
+        pool: &SqlitePool,
+        initiative_id: &str,
+    ) -> Result<Vec<ProjectDependency>> {
+        let dependencies = sqlx::query_as::<_, ProjectDependency>(
+            r#"
+            SELECT pd.* FROM project_dependencies pd
+            JOIN initiative_projects ip1 ON pd.project_id = ip1.project_id
+            JOIN initiative_projects ip2 ON pd.depends_on_project_id = ip2.project_id
+            WHERE ip1.initiative_id = ? AND ip2.initiative_id = ?
+            ORDER BY pd.project_id, pd.depends_on_project_id
+            "#,
+        )
+        .bind(initiative_id)
+        .bind(initiative_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(dependencies)
+    }
+}
+
 /// Database operations for tasks
 pub mod tasks {
     use super::*;
@@ -447,6 +686,143 @@ pub mod dependencies {
         .fetch_all(pool)
         .await?;
         Ok(tasks)
+    }
+}
+
+/// Database operations for project dependencies
+pub mod project_dependencies {
+    use super::*;
+    use crate::error::GranaryError;
+
+    /// Add a dependency from one project to another
+    pub async fn add(pool: &SqlitePool, project_id: &str, depends_on: &str) -> Result<()> {
+        // Check for cycle first
+        if would_create_cycle(pool, project_id, depends_on).await? {
+            return Err(GranaryError::DependencyCycle(format!(
+                "Adding dependency {} -> {} would create a cycle",
+                project_id, depends_on
+            )));
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT OR IGNORE INTO project_dependencies (project_id, depends_on_project_id, created_at) VALUES (?, ?, ?)",
+        )
+        .bind(project_id)
+        .bind(depends_on)
+        .bind(&now)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Remove a dependency between projects
+    pub async fn remove(pool: &SqlitePool, project_id: &str, depends_on: &str) -> Result<bool> {
+        let result = sqlx::query(
+            "DELETE FROM project_dependencies WHERE project_id = ? AND depends_on_project_id = ?",
+        )
+        .bind(project_id)
+        .bind(depends_on)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// List all projects that this project depends on
+    pub async fn list(pool: &SqlitePool, project_id: &str) -> Result<Vec<Project>> {
+        let projects = sqlx::query_as::<_, Project>(
+            r#"
+            SELECT p.* FROM projects p
+            JOIN project_dependencies pd ON p.id = pd.depends_on_project_id
+            WHERE pd.project_id = ?
+            ORDER BY p.name ASC
+            "#,
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(projects)
+    }
+
+    /// List all projects that depend on this project
+    pub async fn list_dependents(pool: &SqlitePool, project_id: &str) -> Result<Vec<Project>> {
+        let projects = sqlx::query_as::<_, Project>(
+            r#"
+            SELECT p.* FROM projects p
+            JOIN project_dependencies pd ON p.id = pd.project_id
+            WHERE pd.depends_on_project_id = ?
+            ORDER BY p.name ASC
+            "#,
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(projects)
+    }
+
+    /// Check if adding a dependency would create a cycle
+    pub async fn would_create_cycle(
+        pool: &SqlitePool,
+        project_id: &str,
+        depends_on: &str,
+    ) -> Result<bool> {
+        // If project_id == depends_on, it's a self-loop (already prevented by CHECK constraint)
+        if project_id == depends_on {
+            return Ok(true);
+        }
+
+        // Check if depends_on transitively depends on project_id
+        // This would create a cycle: project_id -> depends_on -> ... -> project_id
+        let result = sqlx::query_scalar::<_, i64>(
+            r#"
+            WITH RECURSIVE dep_chain(id) AS (
+                SELECT depends_on_project_id FROM project_dependencies WHERE project_id = ?
+                UNION
+                SELECT pd.depends_on_project_id
+                FROM project_dependencies pd
+                JOIN dep_chain dc ON pd.project_id = dc.id
+            )
+            SELECT COUNT(*) FROM dep_chain WHERE id = ?
+            "#,
+        )
+        .bind(depends_on)
+        .bind(project_id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(result > 0)
+    }
+
+    /// Get all unmet dependencies for a project
+    /// A project dependency is "unmet" if the dependent project has any incomplete tasks
+    pub async fn get_unmet(pool: &SqlitePool, project_id: &str) -> Result<Vec<Project>> {
+        let projects = sqlx::query_as::<_, Project>(
+            r#"
+            SELECT DISTINCT p.* FROM projects p
+            JOIN project_dependencies pd ON p.id = pd.depends_on_project_id
+            WHERE pd.project_id = ?
+            AND EXISTS (
+                SELECT 1 FROM tasks t
+                WHERE t.project_id = p.id AND t.status != 'done'
+            )
+            ORDER BY p.name ASC
+            "#,
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(projects)
+    }
+
+    /// Get raw dependency records for a project
+    pub async fn list_raw(pool: &SqlitePool, project_id: &str) -> Result<Vec<ProjectDependency>> {
+        let deps = sqlx::query_as::<_, ProjectDependency>(
+            "SELECT * FROM project_dependencies WHERE project_id = ?",
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(deps)
     }
 }
 
@@ -1153,6 +1529,134 @@ pub mod search {
         .bind(format!("%{}%", query))
         .fetch_all(pool)
         .await?;
+        Ok(tasks)
+    }
+
+    /// Search initiatives by name (case-insensitive)
+    pub async fn search_initiatives(
+        pool: &SqlitePool,
+        query: &str,
+    ) -> Result<Vec<crate::models::initiative::Initiative>> {
+        let initiatives = sqlx::query_as::<_, crate::models::initiative::Initiative>(
+            r#"
+            SELECT * FROM initiatives
+            WHERE name LIKE ? COLLATE NOCASE
+            ORDER BY created_at DESC
+            "#,
+        )
+        .bind(format!("%{}%", query))
+        .fetch_all(pool)
+        .await?;
+        Ok(initiatives)
+    }
+}
+
+/// Database operations for getting next tasks across an initiative
+/// This respects both project-to-project dependencies and task-to-task dependencies
+pub mod initiative_tasks {
+    use super::*;
+
+    /// Get all unblocked tasks across an initiative.
+    ///
+    /// A task is actionable only if:
+    /// 1. Its project has no unmet project dependencies (all dependency projects have all tasks done)
+    /// 2. The task itself has no unmet task dependencies (all dependency tasks are done)
+    /// 3. The task is not blocked (status != blocked, no blocked_reason)
+    /// 4. The task is todo or in_progress
+    ///
+    /// Results are sorted by priority (P0 first), due_at (earliest first), created_at, and id (for determinism).
+    pub async fn get_next(pool: &SqlitePool, initiative_id: &str, all: bool) -> Result<Vec<Task>> {
+        // Step 1: Get all project IDs in the initiative
+        let project_rows: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT p.id FROM projects p
+            JOIN initiative_projects ip ON p.id = ip.project_id
+            WHERE ip.initiative_id = ?
+            "#,
+        )
+        .bind(initiative_id)
+        .fetch_all(pool)
+        .await?;
+
+        if project_rows.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let all_project_ids: Vec<String> = project_rows.into_iter().map(|(id,)| id).collect();
+
+        // Step 2: Find projects with unmet dependencies
+        // A project has unmet dependencies if any of its dependencies has incomplete tasks
+        let mut blocked_project_ids: Vec<String> = Vec::new();
+
+        for project_id in &all_project_ids {
+            // Check if this project has any unmet project dependencies
+            let unmet_count: (i64,) = sqlx::query_as(
+                r#"
+                SELECT COUNT(*) FROM project_dependencies pd
+                WHERE pd.project_id = ?
+                AND EXISTS (
+                    SELECT 1 FROM tasks t
+                    WHERE t.project_id = pd.depends_on_project_id
+                    AND t.status != 'done'
+                )
+                "#,
+            )
+            .bind(project_id)
+            .fetch_one(pool)
+            .await?;
+
+            if unmet_count.0 > 0 {
+                blocked_project_ids.push(project_id.clone());
+            }
+        }
+
+        // Step 3: Get unblocked project IDs
+        let unblocked_project_ids: Vec<&String> = all_project_ids
+            .iter()
+            .filter(|id| !blocked_project_ids.contains(id))
+            .collect();
+
+        if unblocked_project_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Step 4: Query for unblocked tasks in unblocked projects
+        let json_project_ids = serde_json::to_string(&unblocked_project_ids)?;
+
+        let limit = if all { 1000i32 } else { 1i32 };
+
+        let tasks = sqlx::query_as::<_, Task>(
+            r#"
+            SELECT t.*
+            FROM tasks t
+            WHERE t.project_id IN (SELECT value FROM json_each(?))
+              AND t.status IN ('todo', 'in_progress')
+              AND t.blocked_reason IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM task_dependencies td
+                  JOIN tasks dep ON dep.id = td.depends_on_task_id
+                  WHERE td.task_id = t.id
+                    AND dep.status != 'done'
+              )
+            ORDER BY
+                CASE t.priority
+                    WHEN 'P0' THEN 0
+                    WHEN 'P1' THEN 1
+                    WHEN 'P2' THEN 2
+                    WHEN 'P3' THEN 3
+                    WHEN 'P4' THEN 4
+                END,
+                t.due_at NULLS LAST,
+                t.created_at,
+                t.id
+            LIMIT ?
+            "#,
+        )
+        .bind(&json_project_ids)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
         Ok(tasks)
     }
 }

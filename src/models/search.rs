@@ -1,9 +1,15 @@
 use serde::{Deserialize, Serialize};
 
-/// Search result item (can be either a project or task)
+/// Search result item (can be an initiative, project, or task)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SearchResult {
+    Initiative {
+        id: String,
+        name: String,
+        description: Option<String>,
+        status: String,
+    },
     Project {
         id: String,
         name: String,
@@ -23,6 +29,7 @@ pub enum SearchResult {
 impl SearchResult {
     pub fn id(&self) -> &str {
         match self {
+            SearchResult::Initiative { id, .. } => id,
             SearchResult::Project { id, .. } => id,
             SearchResult::Task { id, .. } => id,
         }
@@ -30,6 +37,7 @@ impl SearchResult {
 
     pub fn title(&self) -> &str {
         match self {
+            SearchResult::Initiative { name, .. } => name,
             SearchResult::Project { name, .. } => name,
             SearchResult::Task { title, .. } => title,
         }
@@ -37,6 +45,7 @@ impl SearchResult {
 
     pub fn entity_type(&self) -> &str {
         match self {
+            SearchResult::Initiative { .. } => "initiative",
             SearchResult::Project { .. } => "project",
             SearchResult::Task { .. } => "task",
         }

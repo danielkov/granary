@@ -1,6 +1,7 @@
 use serde::Serialize;
 use serde_json::json;
 
+use crate::models::initiative::Initiative;
 use crate::models::*;
 
 pub fn format_project(project: &Project) -> String {
@@ -187,4 +188,20 @@ pub fn format_checkpoint_diff(diff: &CheckpointDiff) -> String {
 
 pub fn format_search_results(results: &[SearchResult]) -> String {
     serde_json::to_string_pretty(results).unwrap_or_else(|_| "[]".to_string())
+}
+
+pub fn format_initiative(initiative: &Initiative) -> String {
+    serde_json::to_string_pretty(initiative).unwrap_or_else(|_| "{}".to_string())
+}
+
+pub fn format_initiatives(initiatives: &[Initiative]) -> String {
+    serde_json::to_string_pretty(initiatives).unwrap_or_else(|_| "[]".to_string())
+}
+
+// === Initiative Summary ===
+
+use crate::models::initiative::InitiativeSummary;
+
+pub fn format_initiative_summary(summary: &InitiativeSummary) -> String {
+    serde_json::to_string_pretty(summary).unwrap_or_else(|_| "{}".to_string())
 }

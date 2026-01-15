@@ -36,6 +36,9 @@ pub enum GranaryError {
     #[error("Artifact not found: {0}")]
     ArtifactNotFound(String),
 
+    #[error("Initiative not found: {0}")]
+    InitiativeNotFound(String),
+
     #[error("No active session. Start one with 'granary session start <name>'.")]
     NoActiveSession,
 
@@ -93,6 +96,7 @@ impl GranaryError {
             | GranaryError::SessionNotFound(_)
             | GranaryError::CheckpointNotFound(_)
             | GranaryError::ArtifactNotFound(_)
+            | GranaryError::InitiativeNotFound(_)
             | GranaryError::NoActiveSession => exit_codes::NOT_FOUND,
 
             // Conflict errors (concurrency, claims)

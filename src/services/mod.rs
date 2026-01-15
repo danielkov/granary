@@ -1,5 +1,6 @@
 pub mod batch_service;
 pub mod checkpoint_service;
+pub mod initiative_service;
 pub mod project_service;
 pub mod search_service;
 pub mod session_service;
@@ -9,6 +10,7 @@ pub mod workspace;
 
 pub use batch_service::*;
 pub use checkpoint_service::*;
+pub use initiative_service::*;
 pub use project_service::*;
 pub use search_service::*;
 pub use session_service::*;

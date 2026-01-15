@@ -86,3 +86,11 @@ pub struct UpdateProject {
     pub default_session_policy: Option<serde_json::Value>,
     pub steering_refs: Option<Vec<String>>,
 }
+
+/// Represents a dependency relationship between two projects
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ProjectDependency {
+    pub project_id: String,
+    pub depends_on_project_id: String,
+    pub created_at: String,
+}
