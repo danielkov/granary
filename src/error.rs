@@ -80,6 +80,12 @@ pub enum GranaryError {
 
     #[error("YAML error: {0}")]
     Yaml(#[from] serde_yaml::Error),
+
+    #[error("Network error: {0}")]
+    Network(String),
+
+    #[error("Update error: {0}")]
+    Update(String),
 }
 
 impl GranaryError {
@@ -116,7 +122,9 @@ impl GranaryError {
             | GranaryError::Migration(_)
             | GranaryError::Io(_)
             | GranaryError::Json(_)
-            | GranaryError::Yaml(_) => exit_codes::INTERNAL,
+            | GranaryError::Yaml(_)
+            | GranaryError::Network(_)
+            | GranaryError::Update(_) => exit_codes::INTERNAL,
         }
     }
 }
