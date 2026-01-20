@@ -768,6 +768,170 @@ impl WorkerManager {
     pub fn get_worker_log_path(&self, worker_id: &str) -> Result<PathBuf> {
         Ok(global_config_service::worker_logs_dir(worker_id)?.join("worker.log"))
     }
+
+    /// Prune stopped and errored workers, their runs, and log files.
+    ///
+    /// This method cleans up workers that are no longer active by:
+    /// 1. Finding all workers with "stopped" or "error" status
+    /// 2. Deleting their associated run records from the database
+    /// 3. Removing their log directories from disk
+    /// 4. Deleting the worker records from the database
+    ///
+    /// # Returns
+    ///
+    /// The number of workers that were pruned.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operations fail. Log directory removal
+    /// failures are logged but do not cause the method to fail.
+    pub async fn prune_workers(&self) -> Result<i32> {
+        // Find workers with stopped or error status
+        let stopped_workers =
+            db::workers::list_by_status(&self.global_pool, WorkerStatus::Stopped).await?;
+        let mut error_workers =
+            db::workers::list_by_status(&self.global_pool, WorkerStatus::Error).await?;
+
+        let mut all_workers = stopped_workers;
+        all_workers.append(&mut error_workers);
+
+        let mut pruned = 0;
+        for worker in all_workers {
+            // Delete runs for this worker
+            db::runs::delete_by_worker(&self.global_pool, &worker.id).await?;
+
+            // Delete log directory
+            if let Ok(log_dir) = global_config_service::worker_logs_dir(&worker.id)
+                && log_dir.exists()
+            {
+                let _ = std::fs::remove_dir_all(&log_dir);
+            }
+
+            // Delete worker record
+            db::workers::delete(&self.global_pool, &worker.id).await?;
+            pruned += 1;
+        }
+
+        Ok(pruned)
+    }
+
+    // ========================================================================
+    // Log retention and cleanup methods
+    // ========================================================================
+
+    /// Clean up old log files based on retention policy.
+    ///
+    /// This method enforces the log retention policy by:
+    /// 1. Iterating through all worker log directories
+    /// 2. Deleting log files older than `max_age_days`
+    /// 3. Keeping only the most recent `max_files_per_worker` files per worker
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The log retention configuration specifying cleanup thresholds
+    ///
+    /// # Returns
+    ///
+    /// The number of log files that were deleted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the logs directory cannot be read. Individual file
+    /// deletion failures are silently ignored to ensure cleanup continues.
+    pub fn cleanup_old_logs(
+        &self,
+        config: &crate::models::global_config::LogRetentionConfig,
+    ) -> Result<u64> {
+        let logs_base_dir = global_config_service::logs_dir()?;
+
+        // If logs directory doesn't exist, nothing to clean
+        if !logs_base_dir.exists() {
+            return Ok(0);
+        }
+
+        let max_age_secs = config.max_age_days * 86400;
+        let mut deleted = 0u64;
+
+        // Iterate through worker directories
+        let entries = match std::fs::read_dir(&logs_base_dir) {
+            Ok(entries) => entries,
+            Err(_) => return Ok(0),
+        };
+
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+
+            let worker_dir = entry.path();
+            deleted +=
+                self.cleanup_worker_logs(&worker_dir, max_age_secs, config.max_files_per_worker);
+        }
+
+        Ok(deleted)
+    }
+
+    /// Clean up log files in a single worker's log directory.
+    ///
+    /// Deletes files that are either:
+    /// - Older than the maximum age threshold
+    /// - Exceeding the maximum file count (oldest files first)
+    ///
+    /// # Arguments
+    ///
+    /// * `worker_dir` - Path to the worker's log directory
+    /// * `max_age_secs` - Maximum age in seconds for log files
+    /// * `max_files` - Maximum number of log files to keep
+    ///
+    /// # Returns
+    ///
+    /// The number of files deleted from this worker directory.
+    fn cleanup_worker_logs(
+        &self,
+        worker_dir: &std::path::Path,
+        max_age_secs: u64,
+        max_files: usize,
+    ) -> u64 {
+        let entries = match std::fs::read_dir(worker_dir) {
+            Ok(entries) => entries,
+            Err(_) => return 0,
+        };
+
+        // Collect all log files with their modification times
+        let mut log_files: Vec<(std::path::PathBuf, std::time::SystemTime)> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "log"))
+            .filter_map(|e| {
+                let path = e.path();
+                let modified = e.metadata().ok()?.modified().ok()?;
+                Some((path, modified))
+            })
+            .collect();
+
+        // Sort by modification time (oldest first)
+        log_files.sort_by_key(|(_, modified)| *modified);
+
+        let now = std::time::SystemTime::now();
+        let mut deleted = 0u64;
+        let total_files = log_files.len();
+
+        for (i, (path, modified)) in log_files.iter().enumerate() {
+            // Check if file is too old
+            let is_too_old = now
+                .duration_since(*modified)
+                .map(|d| d.as_secs() > max_age_secs)
+                .unwrap_or(false);
+
+            // Check if we have too many files (keep the newest max_files)
+            let exceeds_max_count = total_files > max_files && i < (total_files - max_files);
+
+            if (is_too_old || exceeds_max_count) && std::fs::remove_file(path).is_ok() {
+                deleted += 1;
+            }
+        }
+
+        deleted
+    }
 }
 
 /// Signal types for process control
@@ -777,7 +941,13 @@ enum ProcessSignal {
     Cont,
 }
 
-/// Send a signal to a process
+/// Send a signal to a process group.
+///
+/// On Unix, signals are sent to the entire process group (using negative PID).
+/// This ensures that when a runner spawns child processes, they all receive
+/// the signal when the run is stopped/paused/resumed.
+///
+/// On Windows, for TERM signals, taskkill /T is used to kill the process tree.
 fn kill_process(pid: u32, signal: ProcessSignal) {
     #[cfg(unix)]
     {
@@ -786,18 +956,21 @@ fn kill_process(pid: u32, signal: ProcessSignal) {
             ProcessSignal::Stop => "-STOP",
             ProcessSignal::Cont => "-CONT",
         };
+        // Negative PID means kill entire process group
+        // The process group ID equals the PID of the group leader (our spawned process)
+        // because we used setsid() when spawning
+        let pgid = format!("-{}", pid);
         let _ = std::process::Command::new("kill")
-            .args([sig, &pid.to_string()])
+            .args([sig, &pgid])
             .output();
     }
 
     #[cfg(not(unix))]
     {
-        // On Windows, we can't easily send signals
-        // For TERM, we could use taskkill
+        // On Windows, use taskkill /T to kill the entire process tree
         if matches!(signal, ProcessSignal::Term) {
             let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/F"])
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
                 .output();
         }
         // STOP and CONT are not easily supported on Windows
@@ -911,5 +1084,98 @@ mod tests {
                 .unwrap()
                 .contains("Workspace directory missing")
         );
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_worker_logs_by_count() {
+        let (pool, temp_dir) = setup_test_db().await;
+        let manager = WorkerManager::new(pool);
+
+        // Create a fake worker log directory
+        let worker_dir = temp_dir.path().join("worker-test");
+        std::fs::create_dir_all(&worker_dir).unwrap();
+
+        // Create multiple log files
+        for i in 0..5 {
+            let log_path = worker_dir.join(format!("run-{}.log", i));
+            std::fs::write(&log_path, format!("Log content {}", i)).unwrap();
+            // Add small delay to ensure different modification times
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        // Verify all files were created
+        let files_before: Vec<_> = std::fs::read_dir(&worker_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(files_before.len(), 5);
+
+        // Cleanup with max 3 files
+        let deleted = manager.cleanup_worker_logs(&worker_dir, u64::MAX, 3);
+        assert_eq!(deleted, 2); // Should delete 2 oldest files
+
+        // Verify only 3 newest files remain
+        let files_after: Vec<_> = std::fs::read_dir(&worker_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(files_after.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_worker_logs_empty_directory() {
+        let (pool, temp_dir) = setup_test_db().await;
+        let manager = WorkerManager::new(pool);
+
+        // Create an empty worker log directory
+        let worker_dir = temp_dir.path().join("worker-empty");
+        std::fs::create_dir_all(&worker_dir).unwrap();
+
+        // Cleanup should return 0
+        let deleted = manager.cleanup_worker_logs(&worker_dir, u64::MAX, 100);
+        assert_eq!(deleted, 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_worker_logs_nonexistent_directory() {
+        let (pool, temp_dir) = setup_test_db().await;
+        let manager = WorkerManager::new(pool);
+
+        // Try to cleanup a nonexistent directory
+        let worker_dir = temp_dir.path().join("nonexistent");
+        let deleted = manager.cleanup_worker_logs(&worker_dir, u64::MAX, 100);
+        assert_eq!(deleted, 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_worker_logs_ignores_non_log_files() {
+        let (pool, temp_dir) = setup_test_db().await;
+        let manager = WorkerManager::new(pool);
+
+        // Create a fake worker log directory
+        let worker_dir = temp_dir.path().join("worker-mixed");
+        std::fs::create_dir_all(&worker_dir).unwrap();
+
+        // Create some log files and some non-log files
+        std::fs::write(worker_dir.join("run-1.log"), "log1").unwrap();
+        std::fs::write(worker_dir.join("run-2.log"), "log2").unwrap();
+        std::fs::write(worker_dir.join("config.json"), "{}").unwrap();
+        std::fs::write(worker_dir.join("data.txt"), "data").unwrap();
+
+        // Cleanup with max 1 log file
+        let deleted = manager.cleanup_worker_logs(&worker_dir, u64::MAX, 1);
+        assert_eq!(deleted, 1); // Should delete 1 oldest log file
+
+        // Non-log files should still exist
+        assert!(worker_dir.join("config.json").exists());
+        assert!(worker_dir.join("data.txt").exists());
+
+        // One log file should remain
+        let log_count = std::fs::read_dir(&worker_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "log"))
+            .count();
+        assert_eq!(log_count, 1);
     }
 }

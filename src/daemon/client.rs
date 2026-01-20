@@ -15,8 +15,8 @@ use tokio::net::UnixStream;
 use tokio::net::windows::named_pipe::NamedPipeClient;
 
 use crate::daemon::protocol::{
-    LogTarget, LogsRequest, LogsResponse, Operation, Request, Response, StartWorkerRequest,
-    read_frame, write_frame,
+    AuthRequest, LogTarget, LogsRequest, LogsResponse, Operation, Request, Response,
+    StartWorkerRequest, read_frame, write_frame,
 };
 use crate::error::{GranaryError, Result};
 use crate::models::run::Run;
@@ -59,10 +59,14 @@ impl DaemonClient {
     /// On Windows, this connects to the daemon's named pipe at
     /// `\\.\pipe\granaryd-{username}`.
     ///
+    /// After establishing the connection, the client automatically authenticates
+    /// using the auth token stored at `~/.granary/daemon/auth.token`.
+    ///
     /// # Errors
     ///
     /// Returns `DaemonConnection` error if the daemon is not running or the
     /// socket/pipe cannot be connected to.
+    /// Returns `DaemonError` if authentication fails.
     #[cfg(unix)]
     pub async fn connect() -> Result<Self> {
         let socket_path = global_config_service::daemon_socket_path()?;
@@ -74,16 +78,24 @@ impl DaemonClient {
             ))
         })?;
 
-        Ok(Self {
+        let mut client = Self {
             stream,
             request_id: AtomicU64::new(1),
-        })
+        };
+
+        // Authenticate with the daemon
+        client.authenticate().await?;
+
+        Ok(client)
     }
 
     /// Create a DaemonClient from an existing Unix stream.
     ///
     /// This is useful for testing where you want to connect to a daemon
     /// at a custom socket path rather than the default global socket.
+    ///
+    /// **Note:** This method does NOT authenticate automatically. The caller
+    /// must call `authenticate()` manually after creating the client.
     ///
     /// # Arguments
     ///
@@ -96,16 +108,64 @@ impl DaemonClient {
         }
     }
 
+    /// Authenticate with the daemon using the stored auth token.
+    ///
+    /// This is called automatically by `connect()`. You only need to call
+    /// this manually if you created the client using `from_stream()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DaemonError` if authentication fails (invalid token or
+    /// daemon rejects the auth request).
+    pub async fn authenticate(&mut self) -> Result<()> {
+        let token = global_config_service::get_or_create_auth_token()?;
+        self.authenticate_with_token(&token).await
+    }
+
+    /// Authenticate with the daemon using a provided token.
+    ///
+    /// This is useful for testing or custom authentication scenarios where
+    /// the token is stored in a non-standard location.
+    ///
+    /// # Arguments
+    ///
+    /// * `token` - The authentication token to use
+    ///
+    /// # Errors
+    ///
+    /// Returns `DaemonError` if authentication fails.
+    pub async fn authenticate_with_token(&mut self, token: &str) -> Result<()> {
+        let response = self
+            .request(Operation::Auth(AuthRequest {
+                token: token.to_string(),
+            }))
+            .await?;
+
+        if response.ok {
+            Ok(())
+        } else {
+            Err(GranaryError::DaemonError(
+                response
+                    .error
+                    .unwrap_or_else(|| "Authentication failed".to_string()),
+            ))
+        }
+    }
+
     /// Connect to the daemon via named pipe (Windows).
     ///
     /// This establishes a connection to the daemon's named pipe.
     /// If the pipe is busy (all instances in use), this will retry with
     /// a short delay.
     ///
+    /// After establishing the connection, the client automatically authenticates
+    /// using the auth token stored at `~/.granary/daemon/auth.token`.
+    ///
     /// # Errors
     ///
     /// Returns `DaemonConnection` error if the daemon is not running or the
     /// pipe cannot be connected to.
+    /// Returns `DaemonError` if authentication fails.
     #[cfg(windows)]
     pub async fn connect() -> Result<Self> {
         use tokio::net::windows::named_pipe::ClientOptions;
@@ -130,10 +190,15 @@ impl DaemonClient {
             }
         };
 
-        Ok(Self {
+        let mut client = Self {
             pipe,
             request_id: AtomicU64::new(1),
-        })
+        };
+
+        // Authenticate with the daemon
+        client.authenticate().await?;
+
+        Ok(client)
     }
 
     /// Send a request and wait for response.
@@ -337,11 +402,12 @@ impl DaemonClient {
     /// # Arguments
     ///
     /// * `worker_id` - The ID of the worker
-    /// * `follow` - If true, follow the log output (streaming)
+    /// * `follow` - If true, returns LogsResponse format with has_more indicator for streaming
     /// * `lines` - Number of lines to show (from the end)
     ///
-    /// Note: For follow mode, this returns immediately with the initial logs.
-    /// Streaming logs require a different approach (not yet implemented).
+    /// When `follow=true`, the returned string contains the initial log lines and
+    /// the response indicates if more logs may come (worker is still active).
+    /// Use `get_logs()` or `follow_logs()` for proper streaming support.
     pub async fn worker_logs(
         &mut self,
         worker_id: &str,
@@ -356,11 +422,21 @@ impl DaemonClient {
             })
             .await?;
         if response.ok {
-            let logs = response
-                .body
-                .and_then(|v| v.get("logs").and_then(|v| v.as_str()).map(String::from))
-                .unwrap_or_default();
-            Ok(logs)
+            if follow {
+                // Follow mode returns LogsResponse format
+                let logs_response: LogsResponse =
+                    serde_json::from_value(response.body.ok_or_else(|| {
+                        GranaryError::DaemonProtocol("Missing response body".into())
+                    })?)?;
+                Ok(logs_response.lines.join("\n"))
+            } else {
+                // Non-follow mode returns simple { logs: "..." } format
+                let logs = response
+                    .body
+                    .and_then(|v| v.get("logs").and_then(|v| v.as_str()).map(String::from))
+                    .unwrap_or_default();
+                Ok(logs)
+            }
         } else {
             Err(GranaryError::DaemonError(
                 response.error.unwrap_or_default(),
@@ -484,11 +560,12 @@ impl DaemonClient {
     /// # Arguments
     ///
     /// * `run_id` - The ID of the run
-    /// * `follow` - If true, follow the log output (streaming)
+    /// * `follow` - If true, returns LogsResponse format with has_more indicator for streaming
     /// * `lines` - Number of lines to show (from the end)
     ///
-    /// Note: For follow mode, this returns immediately with the initial logs.
-    /// Streaming logs require a different approach (not yet implemented).
+    /// When `follow=true`, the returned string contains the initial log lines and
+    /// the response indicates if more logs may come (run is still active).
+    /// Use `get_logs()` or `follow_logs()` for proper streaming support.
     pub async fn run_logs(&mut self, run_id: &str, follow: bool, lines: i32) -> Result<String> {
         let response = self
             .request(Operation::RunLogs {
@@ -498,11 +575,21 @@ impl DaemonClient {
             })
             .await?;
         if response.ok {
-            let logs = response
-                .body
-                .and_then(|v| v.get("logs").and_then(|v| v.as_str()).map(String::from))
-                .unwrap_or_default();
-            Ok(logs)
+            if follow {
+                // Follow mode returns LogsResponse format
+                let logs_response: LogsResponse =
+                    serde_json::from_value(response.body.ok_or_else(|| {
+                        GranaryError::DaemonProtocol("Missing response body".into())
+                    })?)?;
+                Ok(logs_response.lines.join("\n"))
+            } else {
+                // Non-follow mode returns simple { logs: "..." } format
+                let logs = response
+                    .body
+                    .and_then(|v| v.get("logs").and_then(|v| v.as_str()).map(String::from))
+                    .unwrap_or_default();
+                Ok(logs)
+            }
         } else {
             Err(GranaryError::DaemonError(
                 response.error.unwrap_or_default(),

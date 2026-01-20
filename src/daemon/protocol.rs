@@ -82,10 +82,21 @@ impl Response {
     }
 }
 
+/// Authentication request sent as the first message on connection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthRequest {
+    /// The authentication token (should match ~/.granary/daemon/auth.token)
+    pub token: String,
+}
+
 /// Operations supported by the daemon
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum Operation {
+    // Authentication
+    /// Authenticate the connection (must be first message)
+    Auth(AuthRequest),
+
     // Daemon control
     /// Check if daemon is alive
     Ping,
@@ -422,9 +433,41 @@ mod tests {
     }
 
     #[test]
+    fn test_auth_request_serialization() {
+        let auth = AuthRequest {
+            token: "test-token-123".to_string(),
+        };
+        let json = serde_json::to_string(&auth).unwrap();
+        assert!(json.contains("test-token-123"));
+
+        let deserialized: AuthRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.token, "test-token-123");
+    }
+
+    #[test]
+    fn test_auth_operation_serialization() {
+        let op = Operation::Auth(AuthRequest {
+            token: "my-secret-token".to_string(),
+        });
+        let json = serde_json::to_string(&op).unwrap();
+        assert!(json.contains(r#""type":"Auth""#));
+        assert!(json.contains("my-secret-token"));
+
+        let deserialized: Operation = serde_json::from_str(&json).unwrap();
+        if let Operation::Auth(auth) = deserialized {
+            assert_eq!(auth.token, "my-secret-token");
+        } else {
+            panic!("Expected Auth operation");
+        }
+    }
+
+    #[test]
     fn test_all_operations_serialize() {
         // Ensure all operation variants serialize without error
         let operations = vec![
+            Operation::Auth(AuthRequest {
+                token: "test".to_string(),
+            }),
             Operation::Ping,
             Operation::Shutdown,
             Operation::StartWorker(StartWorkerRequest::default()),

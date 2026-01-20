@@ -6,6 +6,35 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Configuration for log retention and rotation policies.
+///
+/// Controls automatic cleanup of log files to prevent unbounded disk usage.
+/// Used by the daemon for periodic log maintenance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogRetentionConfig {
+    /// Maximum age of log files to keep in days.
+    /// Files older than this will be automatically deleted.
+    pub max_age_days: u64,
+
+    /// Maximum total size of logs directory in megabytes.
+    /// When exceeded, oldest logs are deleted first.
+    pub max_total_size_mb: u64,
+
+    /// Maximum number of log files per worker.
+    /// Excess files (oldest first) are deleted.
+    pub max_files_per_worker: usize,
+}
+
+impl Default for LogRetentionConfig {
+    fn default() -> Self {
+        Self {
+            max_age_days: 7,
+            max_total_size_mb: 100,
+            max_files_per_worker: 100,
+        }
+    }
+}
+
 /// Global configuration structure stored at ~/.granary/config.toml
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GlobalConfig {

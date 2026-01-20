@@ -29,6 +29,8 @@ struct TestDaemon {
     /// Path to the socket for this instance
     #[cfg(unix)]
     socket_path: PathBuf,
+    /// Path to the auth token for this instance
+    auth_token_path: PathBuf,
 }
 
 impl TestDaemon {
@@ -48,6 +50,7 @@ impl TestDaemon {
 
         #[cfg(unix)]
         let socket_path = daemon_dir.join("granaryd.sock");
+        let auth_token_path = daemon_dir.join("auth.token");
 
         // Find the granaryd binary - it should be in target/debug or target/release
         let daemon_path = find_daemon_binary()?;
@@ -67,6 +70,7 @@ impl TestDaemon {
             process: Some(process),
             #[cfg(unix)]
             socket_path,
+            auth_token_path,
         };
 
         // Wait for daemon to be ready (up to 5 seconds)
@@ -118,7 +122,19 @@ impl TestDaemon {
         Ok(instance)
     }
 
+    /// Read the auth token from the daemon's temp directory.
+    fn read_auth_token(&self) -> Result<String, String> {
+        if !self.auth_token_path.exists() {
+            return Err("Auth token file does not exist yet".to_string());
+        }
+        std::fs::read_to_string(&self.auth_token_path)
+            .map(|s| s.trim().to_string())
+            .map_err(|e| format!("Failed to read auth token: {}", e))
+    }
+
     /// Try to connect to the daemon.
+    ///
+    /// Creates a connection and authenticates with the daemon.
     #[cfg(unix)]
     async fn try_connect(&self) -> Result<DaemonClient, String> {
         use tokio::net::UnixStream;
@@ -127,11 +143,30 @@ impl TestDaemon {
             return Err("Socket does not exist yet".to_string());
         }
 
+        // Read the auth token from the daemon's temp home
+        // Wait briefly if the auth token doesn't exist yet (it's created on first connection)
+        let token = match self.read_auth_token() {
+            Ok(t) => t,
+            Err(_) => {
+                // Auth token might not exist yet, wait a bit and retry
+                sleep(Duration::from_millis(100)).await;
+                self.read_auth_token()?
+            }
+        };
+
         let stream = UnixStream::connect(&self.socket_path)
             .await
             .map_err(|e| format!("Connect failed: {}", e))?;
 
-        Ok(DaemonClient::from_stream(stream))
+        let mut client = DaemonClient::from_stream(stream);
+
+        // Authenticate with the daemon using the correct token
+        client
+            .authenticate_with_token(&token)
+            .await
+            .map_err(|e| format!("Authentication failed: {}", e))?;
+
+        Ok(client)
     }
 
     #[cfg(windows)]
@@ -429,17 +464,23 @@ async fn test_daemon_concurrent_connections() {
         }
     };
 
+    // Read the auth token for all connections
+    let auth_token = daemon.read_auth_token().expect("Failed to read auth token");
+
     // Spawn multiple concurrent ping requests
     let socket_path = daemon.socket_path.clone();
     let mut handles = Vec::new();
 
     for _ in 0..5 {
         let path = socket_path.clone();
+        let token = auth_token.clone();
         let handle = tokio::spawn(async move {
             use tokio::net::UnixStream;
 
             let stream = UnixStream::connect(&path).await?;
             let mut client = DaemonClient::from_stream(stream);
+            // Authenticate before using the client
+            client.authenticate_with_token(&token).await?;
             client.ping().await
         });
         handles.push(handle);

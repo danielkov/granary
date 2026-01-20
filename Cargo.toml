@@ -49,6 +49,13 @@ semver = "1"
 
 # Additional dependencies for daemon
 anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+# Unix-specific dependencies (for process groups)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # Windows-specific dependencies
 [target.'cfg(windows)'.dependencies]

@@ -63,6 +63,39 @@ pub fn daemon_log_path() -> Result<PathBuf> {
     Ok(daemon_dir()?.join("daemon.log"))
 }
 
+/// Get the daemon auth token path (~/.granary/daemon/auth.token)
+pub fn daemon_auth_token_path() -> Result<PathBuf> {
+    Ok(daemon_dir()?.join("auth.token"))
+}
+
+/// Generate or read existing auth token for daemon IPC authentication.
+///
+/// If the token file exists, reads and returns it.
+/// Otherwise, generates a new UUID token, writes it to disk with
+/// secure permissions (0600 on Unix), and returns it.
+pub fn get_or_create_auth_token() -> Result<String> {
+    let path = daemon_auth_token_path()?;
+
+    // Ensure the daemon directory exists
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    if path.exists() {
+        Ok(std::fs::read_to_string(&path)?.trim().to_string())
+    } else {
+        let token = uuid::Uuid::new_v4().to_string();
+        std::fs::write(&path, &token)?;
+        // Set file permissions to 0600 on Unix for security
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        Ok(token)
+    }
+}
+
 /// Get the logs directory for a specific worker (~/.granary/logs/<worker_id>)
 pub fn worker_logs_dir(worker_id: &str) -> Result<PathBuf> {
     Ok(logs_dir()?.join(worker_id))
@@ -235,5 +268,14 @@ mod tests {
         assert!(path.is_ok());
         let path = path.unwrap();
         assert!(path.ends_with("daemon.log"));
+    }
+
+    #[test]
+    fn test_daemon_auth_token_path() {
+        let path = daemon_auth_token_path();
+        assert!(path.is_ok());
+        let path = path.unwrap();
+        assert!(path.ends_with("auth.token"));
+        assert!(path.parent().unwrap().ends_with("daemon"));
     }
 }

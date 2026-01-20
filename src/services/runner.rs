@@ -3,6 +3,9 @@
 //! This module handles spawning and managing runner processes. Each runner
 //! is a child process that executes a command in response to an event.
 //! Runners capture stdout/stderr to log files and report exit status.
+//!
+//! On Unix systems, runner processes are spawned in their own process groups
+//! so that the entire process tree can be killed when stopping a run.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -67,18 +70,52 @@ impl RunnerHandle {
         Ok((exit_code, error))
     }
 
-    /// Kill the process.
+    /// Kill the process and its entire process group.
     ///
-    /// This sends SIGKILL on Unix or terminates the process on Windows.
+    /// On Unix, this sends SIGKILL to the process group (negative PID),
+    /// which kills the process and all its descendants. It also starts
+    /// the kill on the child handle to ensure proper cleanup.
+    /// On Windows, this terminates just the process.
     pub async fn kill(&mut self) -> Result<()> {
-        self.child.kill().await.map_err(GranaryError::Io)
+        #[cfg(unix)]
+        {
+            // Kill the entire process group
+            // The process group ID equals the PID since we used setsid() on spawn
+            let pid = self.pid as i32;
+            // SAFETY: libc::kill with negative pid is safe, just sends signal to process group
+            unsafe {
+                libc::kill(-pid, libc::SIGKILL);
+            }
+            // Also start kill on the child handle to ensure tokio cleans up properly
+            // This is a no-op if the process is already dead, but ensures the handle
+            // transitions to the terminated state
+            let _ = self.child.start_kill();
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            self.child.kill().await.map_err(GranaryError::Io)
+        }
     }
 
-    /// Start the process termination (sends SIGKILL).
+    /// Start the process termination (sends SIGKILL to process group).
     ///
-    /// This begins killing the process but doesn't wait for it to complete.
+    /// This begins killing the process and its descendants but doesn't wait for completion.
     pub fn start_kill(&mut self) -> Result<()> {
-        self.child.start_kill().map_err(GranaryError::Io)
+        #[cfg(unix)]
+        {
+            // Kill the entire process group
+            let pid = self.pid as i32;
+            // SAFETY: libc::kill with negative pid is safe, just sends signal to process group
+            unsafe {
+                libc::kill(-pid, libc::SIGKILL);
+            }
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            self.child.start_kill().map_err(GranaryError::Io)
+        }
     }
 }
 
@@ -94,6 +131,10 @@ impl RunnerHandle {
 /// # Log Files
 /// The process stdout and stderr are combined and written to a log file
 /// at `{log_dir}/{run_id}.log`.
+///
+/// # Process Groups
+/// On Unix, the spawned process becomes a session leader and process group leader
+/// via `setsid()`. This allows the entire process tree to be killed when stopping.
 pub async fn spawn_runner(run: &Run, log_dir: &Path) -> Result<RunnerHandle> {
     // Ensure log directory exists
     std::fs::create_dir_all(log_dir)?;
@@ -104,17 +145,32 @@ pub async fn spawn_runner(run: &Run, log_dir: &Path) -> Result<RunnerHandle> {
 
     let args = run.args_vec();
 
-    let child = Command::new(&run.command)
-        .args(&args)
+    let mut cmd = Command::new(&run.command);
+    cmd.args(&args)
         .stdout(Stdio::from(log_file))
-        .stderr(Stdio::from(log_file_stderr))
-        .spawn()
-        .map_err(|e| {
-            GranaryError::Io(std::io::Error::new(
-                e.kind(),
-                format!("Failed to spawn runner '{}': {}", run.command, e),
-            ))
-        })?;
+        .stderr(Stdio::from(log_file_stderr));
+
+    // On Unix, create a new process group so we can kill the entire tree
+    #[cfg(unix)]
+    // SAFETY: setsid() is safe to call in pre_exec - it creates a new session
+    // and process group, making this process the leader. This is standard practice
+    // for daemon child processes.
+    unsafe {
+        cmd.pre_exec(|| {
+            // Create new session and process group
+            // setsid() makes this process the leader of a new process group
+            // The process group ID will equal the process's PID
+            libc::setsid();
+            Ok(())
+        });
+    }
+
+    let child = cmd.spawn().map_err(|e| {
+        GranaryError::Io(std::io::Error::new(
+            e.kind(),
+            format!("Failed to spawn runner '{}': {}", run.command, e),
+        ))
+    })?;
 
     let pid = child.id().ok_or_else(|| {
         GranaryError::Conflict("Failed to get PID of spawned process".to_string())
@@ -136,6 +192,10 @@ pub async fn spawn_runner(run: &Run, log_dir: &Path) -> Result<RunnerHandle> {
 ///
 /// # Returns
 /// A `RunnerHandle` that can be used to track and wait for the process.
+///
+/// # Process Groups
+/// On Unix, the spawned process becomes a session leader and process group leader
+/// via `setsid()`. This allows the entire process tree to be killed when stopping.
 pub async fn spawn_runner_with_env(
     run: &Run,
     log_dir: &Path,
@@ -158,6 +218,21 @@ pub async fn spawn_runner_with_env(
     // Add environment variables
     for (key, value) in env_vars {
         cmd.env(key, value);
+    }
+
+    // On Unix, create a new process group so we can kill the entire tree
+    #[cfg(unix)]
+    // SAFETY: setsid() is safe to call in pre_exec - it creates a new session
+    // and process group, making this process the leader. This is standard practice
+    // for daemon child processes.
+    unsafe {
+        cmd.pre_exec(|| {
+            // Create new session and process group
+            // setsid() makes this process the leader of a new process group
+            // The process group ID will equal the process's PID
+            libc::setsid();
+            Ok(())
+        });
     }
 
     let child = cmd.spawn().map_err(|e| {
@@ -284,8 +359,13 @@ mod tests {
         let result = handle.try_wait().unwrap();
         assert!(result.is_none());
 
-        // Kill the process
+        // Kill the process (and its process group)
         handle.kill().await.unwrap();
+
+        // Give the process a moment to be reaped by the OS
+        // This is necessary because killing a process group with libc::kill
+        // is asynchronous and the kernel needs time to reap the process
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Now it should be done
         let result = handle.try_wait().unwrap();
