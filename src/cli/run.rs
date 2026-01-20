@@ -378,6 +378,7 @@ enum Signal {
 }
 
 /// Check if a process is alive by using kill -0
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn is_process_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
@@ -397,6 +398,7 @@ fn is_process_alive(pid: u32) -> bool {
 }
 
 /// Send a signal to a process
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn send_signal(pid: u32, signal: Signal) {
     #[cfg(unix)]
     {

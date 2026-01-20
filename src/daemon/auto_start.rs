@@ -4,7 +4,7 @@
 //! commands need it. It handles automatic daemon startup with exponential
 //! backoff retry logic.
 
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -69,6 +69,8 @@ pub async fn ensure_daemon() -> Result<DaemonClient> {
 /// sets up its own logging to `~/.granary/daemon/daemon.log`.
 #[cfg(unix)]
 fn spawn_daemon() -> Result<()> {
+    use std::process::Stdio;
+
     // Find the granaryd binary - it should be next to the granary binary
     let current_exe = std::env::current_exe()?;
     let daemon_path = current_exe.with_file_name("granaryd");

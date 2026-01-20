@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::select;
+#[cfg(unix)]
 use tokio::signal::unix::{SignalKind, signal};
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -66,13 +67,27 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Start IPC listener
-    let socket_path = global_config_service::daemon_socket_path()?;
-    let listener = IpcListener::bind(&socket_path).await?;
+    #[cfg(unix)]
+    #[allow(unused_mut)] // Windows needs mut for accept(), Unix doesn't
+    let mut listener = {
+        let socket_path = global_config_service::daemon_socket_path()?;
+        let listener = IpcListener::bind(&socket_path).await?;
+        tracing::info!("granaryd listening on {:?}", listener.socket_path());
+        listener
+    };
 
-    tracing::info!("granaryd listening on {:?}", listener.socket_path());
+    #[cfg(windows)]
+    let mut listener = {
+        let pipe_name = global_config_service::daemon_pipe_name();
+        let listener = IpcListener::bind(&pipe_name).await?;
+        tracing::info!("granaryd listening on {}", listener.pipe_name());
+        listener
+    };
 
     // Set up signal handlers
+    #[cfg(unix)]
     let mut sigterm = signal(SignalKind::terminate())?;
+    #[cfg(unix)]
     let mut sigint = signal(SignalKind::interrupt())?;
 
     // Flag to track shutdown request from IPC
@@ -95,7 +110,8 @@ async fn main() -> anyhow::Result<()> {
         _ => {}
     }
 
-    // Main loop
+    // Main loop - Unix version with SIGTERM/SIGINT handling
+    #[cfg(unix)]
     loop {
         // Check if shutdown was requested via IPC
         if shutdown_flag.load(std::sync::atomic::Ordering::SeqCst) {
@@ -111,6 +127,55 @@ async fn main() -> anyhow::Result<()> {
             }
             _ = sigint.recv() => {
                 tracing::info!("Received SIGINT, shutting down...");
+                break;
+            }
+
+            // Periodic log cleanup
+            _ = cleanup_interval.tick() => {
+                match manager.cleanup_old_logs(&log_retention_config) {
+                    Ok(deleted) if deleted > 0 => {
+                        tracing::info!("Periodic log cleanup: deleted {} old log files", deleted);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Periodic log cleanup failed: {}", e);
+                    }
+                    _ => {}
+                }
+            }
+
+            // Accept new connections
+            result = listener.accept() => {
+                match result {
+                    Ok(conn) => {
+                        let manager = Arc::clone(&manager);
+                        let shutdown_flag = Arc::clone(&shutdown_flag);
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_connection(conn, &manager, &shutdown_flag).await {
+                                tracing::error!("Connection error: {}", e);
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        tracing::error!("Accept error: {}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    // Main loop - Windows version with Ctrl+C handling
+    #[cfg(windows)]
+    loop {
+        // Check if shutdown was requested via IPC
+        if shutdown_flag.load(std::sync::atomic::Ordering::SeqCst) {
+            tracing::info!("Shutdown requested via IPC");
+            break;
+        }
+
+        select! {
+            // Handle Ctrl+C
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Received Ctrl+C, shutting down...");
                 break;
             }
 
