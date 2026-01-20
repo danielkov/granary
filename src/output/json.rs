@@ -205,3 +205,27 @@ use crate::models::initiative::InitiativeSummary;
 pub fn format_initiative_summary(summary: &InitiativeSummary) -> String {
     serde_json::to_string_pretty(summary).unwrap_or_else(|_| "{}".to_string())
 }
+
+// === Worker formatting ===
+
+use crate::models::worker::Worker;
+
+pub fn format_worker(worker: &Worker) -> String {
+    serde_json::to_string_pretty(worker).unwrap_or_else(|_| "{}".to_string())
+}
+
+pub fn format_workers(workers: &[Worker]) -> String {
+    serde_json::to_string_pretty(workers).unwrap_or_else(|_| "[]".to_string())
+}
+
+// === Run formatting ===
+
+use crate::models::run::Run;
+
+pub fn format_run(run: &Run) -> String {
+    serde_json::to_string_pretty(run).unwrap_or_else(|_| "{}".to_string())
+}
+
+pub fn format_runs(runs: &[Run]) -> String {
+    serde_json::to_string_pretty(runs).unwrap_or_else(|_| "[]".to_string())
+}

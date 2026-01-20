@@ -94,6 +94,11 @@ pub async fn task(id: &str, action: Option<TaskAction>, format: OutputFormat) ->
             println!("{}", formatter.format_task(&task));
         }
 
+        Some(TaskAction::Ready) => {
+            let task = services::ready_task(&pool, id).await?;
+            println!("{}", formatter.format_task(&task));
+        }
+
         Some(TaskAction::Start { owner, lease }) => {
             let task = services::start_task(&pool, id, owner.clone()).await?;
             if let Some(minutes) = lease {

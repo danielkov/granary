@@ -2,6 +2,8 @@ pub mod json;
 pub mod prompt;
 pub mod table;
 
+use crate::models::run::Run;
+use crate::models::worker;
 use crate::models::*;
 
 /// Output format enum
@@ -201,6 +203,38 @@ impl Formatter {
             OutputFormat::Md => md_format_initiative_summary(summary),
             OutputFormat::Prompt => prompt::format_initiative_summary(summary),
             OutputFormat::Table => table::format_initiative_summary(summary),
+        }
+    }
+
+    pub fn format_worker(&self, worker: &worker::Worker) -> String {
+        match self.format {
+            OutputFormat::Json => json::format_worker(worker),
+            OutputFormat::Yaml => yaml_format_worker(worker),
+            _ => table::format_worker(worker),
+        }
+    }
+
+    pub fn format_workers(&self, workers: &[worker::Worker]) -> String {
+        match self.format {
+            OutputFormat::Json => json::format_workers(workers),
+            OutputFormat::Yaml => yaml_format_workers(workers),
+            _ => table::format_workers(workers),
+        }
+    }
+
+    pub fn format_run(&self, run: &Run) -> String {
+        match self.format {
+            OutputFormat::Json => json::format_run(run),
+            OutputFormat::Yaml => yaml_format_run(run),
+            _ => table::format_run(run),
+        }
+    }
+
+    pub fn format_runs(&self, runs: &[Run]) -> String {
+        match self.format {
+            OutputFormat::Json => json::format_runs(runs),
+            OutputFormat::Yaml => yaml_format_runs(runs),
+            _ => table::format_runs(runs),
         }
     }
 }
@@ -574,4 +608,24 @@ fn md_format_initiative_summary(summary: &initiative::InitiativeSummary) -> Stri
     }
 
     md
+}
+
+// === Worker YAML formatters ===
+
+fn yaml_format_worker(worker: &worker::Worker) -> String {
+    serde_yaml::to_string(worker).unwrap_or_else(|_| "Error formatting YAML".to_string())
+}
+
+fn yaml_format_workers(workers: &[worker::Worker]) -> String {
+    serde_yaml::to_string(workers).unwrap_or_else(|_| "Error formatting YAML".to_string())
+}
+
+// === Run YAML formatters ===
+
+fn yaml_format_run(run: &Run) -> String {
+    serde_yaml::to_string(run).unwrap_or_else(|_| "Error formatting YAML".to_string())
+}
+
+fn yaml_format_runs(runs: &[Run]) -> String {
+    serde_yaml::to_string(runs).unwrap_or_else(|_| "Error formatting YAML".to_string())
 }
