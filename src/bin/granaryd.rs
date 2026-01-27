@@ -323,6 +323,7 @@ async fn dispatch_request(request: Request, manager: &WorkerManager) -> (Respons
                 filters: req.filters,
                 concurrency: req.concurrency,
                 instance_path: req.instance_path,
+                poll_cooldown_secs: req.poll_cooldown_secs.unwrap_or(300),
                 detached: !req.attach,
             };
 

@@ -80,6 +80,9 @@ pub struct Worker {
     pub updated_at: String,
     /// Timestamp when the worker was stopped
     pub stopped_at: Option<String>,
+    /// Cooldown in seconds for polled events (task.next, project.next)
+    /// Default is 300 seconds (5 minutes)
+    pub poll_cooldown_secs: i64,
     /// ID of the last processed event for cursor-based polling
     pub last_event_id: i64,
 }
@@ -124,6 +127,7 @@ pub struct CreateWorker {
     pub filters: Vec<String>,
     pub concurrency: i32,
     pub instance_path: String,
+    pub poll_cooldown_secs: i64,
     pub detached: bool,
 }
 
@@ -137,6 +141,7 @@ impl Default for CreateWorker {
             filters: Vec::new(),
             concurrency: 1,
             instance_path: String::new(),
+            poll_cooldown_secs: 300, // 5 minutes default
             detached: false,
         }
     }

@@ -25,6 +25,7 @@ pub async fn worker(command: WorkerCommand, format: OutputFormat) -> Result<()> 
             filters,
             detached,
             concurrency,
+            poll_cooldown,
         } => {
             start_worker(StartWorkerArgs {
                 runner_name: runner,
@@ -34,6 +35,7 @@ pub async fn worker(command: WorkerCommand, format: OutputFormat) -> Result<()> 
                 filters,
                 detached,
                 concurrency,
+                poll_cooldown_secs: poll_cooldown,
                 format,
             })
             .await
@@ -53,10 +55,11 @@ struct StartWorkerArgs {
     runner_name: Option<String>,
     inline_command: Option<String>,
     args: Vec<String>,
-    event_type: String,
+    event_type: Option<String>,
     filters: Vec<String>,
     detached: bool,
     concurrency: u32,
+    poll_cooldown_secs: i64,
     format: OutputFormat,
 }
 
@@ -70,40 +73,63 @@ async fn start_worker(args: StartWorkerArgs) -> Result<()> {
         filters,
         detached,
         concurrency,
+        poll_cooldown_secs,
         format,
     } = args;
 
     // Validate we have either a runner or an inline command
-    let (command, final_args, final_concurrency) = match (&runner_name, &inline_command) {
-        (Some(name), None) => {
-            // Load runner from config
-            let runner = global_config_service::get_runner(name)?
-                .ok_or_else(|| GranaryError::RunnerNotFound(name.clone()))?;
+    let (command, final_args, final_concurrency, final_event_type) =
+        match (&runner_name, &inline_command) {
+            (Some(name), None) => {
+                // Load runner from config
+                let runner = global_config_service::get_runner(name)?
+                    .ok_or_else(|| GranaryError::RunnerNotFound(name.clone()))?;
 
-            let concurrency = if concurrency == 1 {
-                runner.concurrency.unwrap_or(1)
-            } else {
-                concurrency
-            };
+                let concurrency = if concurrency == 1 {
+                    runner.concurrency.unwrap_or(1)
+                } else {
+                    concurrency
+                };
 
-            // Merge args: runner args first, then CLI args
-            let mut merged_args = runner.expand_env_in_args();
-            merged_args.extend(cli_args);
+                // Resolve event type: CLI arg takes precedence, then runner config
+                let resolved_event_type = event_type.or(runner.on.clone()).ok_or_else(|| {
+                    GranaryError::InvalidArgument(format!(
+                        "Must specify --on event type (runner '{}' has no default 'on' configured)",
+                        name
+                    ))
+                })?;
 
-            (runner.command, merged_args, concurrency)
-        }
-        (None, Some(cmd)) => (cmd.clone(), cli_args, concurrency),
-        (Some(_), Some(_)) => {
-            return Err(GranaryError::InvalidArgument(
-                "Cannot specify both --runner and --command".to_string(),
-            ));
-        }
-        (None, None) => {
-            return Err(GranaryError::InvalidArgument(
-                "Must specify either --runner or --command".to_string(),
-            ));
-        }
-    };
+                // Merge args: runner args first, then CLI args
+                let mut merged_args = runner.expand_env_in_args();
+                merged_args.extend(cli_args);
+
+                (
+                    runner.command,
+                    merged_args,
+                    concurrency,
+                    resolved_event_type,
+                )
+            }
+            (None, Some(cmd)) => {
+                // Inline command requires --on
+                let resolved_event_type = event_type.ok_or_else(|| {
+                    GranaryError::InvalidArgument(
+                        "Must specify --on event type when using inline --command".to_string(),
+                    )
+                })?;
+                (cmd.clone(), cli_args, concurrency, resolved_event_type)
+            }
+            (Some(_), Some(_)) => {
+                return Err(GranaryError::InvalidArgument(
+                    "Cannot specify both --runner and --command".to_string(),
+                ));
+            }
+            (None, None) => {
+                return Err(GranaryError::InvalidArgument(
+                    "Must specify either --runner or --command".to_string(),
+                ));
+            }
+        };
 
     // Get workspace path
     let workspace = Workspace::find()?;
@@ -117,11 +143,12 @@ async fn start_worker(args: StartWorkerArgs) -> Result<()> {
         runner_name,
         command,
         args: final_args,
-        event_type,
+        event_type: final_event_type,
         filters,
         concurrency: final_concurrency as i32,
         instance_path,
         attach: !detached,
+        poll_cooldown_secs: Some(poll_cooldown_secs),
     };
 
     let worker = client.start_worker(req).await?;

@@ -93,6 +93,7 @@ mod tests {
             created_at: "2026-01-15T10:00:00Z".to_string(),
             updated_at: "2026-01-15T10:30:00Z".to_string(),
             stopped_at: None,
+            poll_cooldown_secs: 300,
             last_event_id: 100,
         }
     }
@@ -232,6 +233,7 @@ mod tests {
             filters: vec!["priority!=P4".to_string()],
             concurrency: 4,
             instance_path: "/home/user/project".to_string(),
+            poll_cooldown_secs: 600, // 10 minutes
             detached: true,
         };
 
@@ -241,6 +243,7 @@ mod tests {
         assert_eq!(create.event_type, "task.unblocked");
         assert_eq!(create.filters.len(), 1);
         assert_eq!(create.concurrency, 4);
+        assert_eq!(create.poll_cooldown_secs, 600);
         assert!(create.detached);
     }
 
@@ -358,6 +361,7 @@ mod tests {
             filters: vec!["task.priority=P0".to_string()],
             concurrency: 2,
             instance_path: "/projects/myapp".to_string(),
+            poll_cooldown_secs: 300,
             detached: false,
         };
 
@@ -375,6 +379,7 @@ mod tests {
             filters: vec![],
             concurrency: 1,
             instance_path: "/projects/myapp".to_string(),
+            poll_cooldown_secs: 300,
             detached: false,
         };
 
@@ -396,6 +401,7 @@ mod tests {
             ],
             concurrency: 10,
             instance_path: "/projects/backend".to_string(),
+            poll_cooldown_secs: 300,
             detached: true,
         };
 

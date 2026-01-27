@@ -216,6 +216,8 @@ pub struct StartWorkerRequest {
     pub instance_path: String,
     /// Whether to attach to the worker's output stream
     pub attach: bool,
+    /// Cooldown in seconds for polled events (default: 300 = 5 minutes)
+    pub poll_cooldown_secs: Option<i64>,
 }
 
 impl Default for StartWorkerRequest {
@@ -229,6 +231,7 @@ impl Default for StartWorkerRequest {
             concurrency: 1,
             instance_path: String::new(),
             attach: false,
+            poll_cooldown_secs: None,
         }
     }
 }

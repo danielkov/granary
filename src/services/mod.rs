@@ -4,6 +4,7 @@ pub mod event_poller;
 pub mod filter;
 pub mod global_config;
 pub mod initiative_service;
+pub mod polled_events;
 pub mod project_service;
 pub mod runner;
 pub mod search_service;
@@ -30,6 +31,7 @@ pub use event_poller::{EventPoller, EventPollerConfig, create_poller_for_worker}
 pub use filter::{Filter, FilterOp, matches_all, matches_any, parse_filters};
 pub use global_config as global_config_service;
 pub use initiative_service::*;
+pub use polled_events::PolledEventEmitter;
 pub use project_service::*;
 pub use runner::{RunnerHandle, spawn_runner, spawn_runner_with_env};
 pub use search_service::*;

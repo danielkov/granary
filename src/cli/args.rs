@@ -961,9 +961,9 @@ pub enum WorkerCommand {
         #[arg(long = "arg", short = 'a')]
         args: Vec<String>,
 
-        /// Event type to subscribe to
+        /// Event type to subscribe to (uses runner's default if not specified)
         #[arg(long)]
-        on: String,
+        on: Option<String>,
 
         /// Filter expressions (can be specified multiple times)
         #[arg(long = "filter", short = 'f')]
@@ -976,6 +976,10 @@ pub enum WorkerCommand {
         /// Maximum concurrent runner instances
         #[arg(long, default_value = "1")]
         concurrency: u32,
+
+        /// Cooldown in seconds for polled events like task.next (default: 300 = 5 minutes)
+        #[arg(long, default_value = "300")]
+        poll_cooldown: i64,
     },
 
     /// Show worker status

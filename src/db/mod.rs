@@ -90,6 +90,33 @@ pub mod projects {
                 .await?;
         Ok(result.rows_affected() > 0)
     }
+
+    /// List projects that have at least one available (next) task.
+    /// A project is 'available' if it has tasks that are:
+    /// - Status is 'todo' or 'in_progress'
+    /// - Not blocked (blocked_reason IS NULL)
+    /// - All dependencies are done
+    pub async fn list_with_available_tasks(pool: &SqlitePool) -> Result<Vec<Project>> {
+        let projects = sqlx::query_as::<_, Project>(
+            r#"
+            SELECT DISTINCT p.* FROM projects p
+            INNER JOIN tasks t ON t.project_id = p.id
+            WHERE p.status = 'active'
+              AND t.status IN ('todo', 'in_progress')
+              AND t.blocked_reason IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM task_dependencies td
+                  JOIN tasks dep ON dep.id = td.depends_on_task_id
+                  WHERE td.task_id = t.id
+                    AND dep.status != 'done'
+              )
+            ORDER BY p.name ASC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(projects)
+    }
 }
 
 /// Database operations for initiatives
@@ -1711,8 +1738,8 @@ pub mod workers {
         sqlx::query(
             r#"
             INSERT INTO workers (id, runner_name, command, args, event_type, filters,
-                concurrency, instance_path, status, detached, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+                concurrency, instance_path, status, poll_cooldown_secs, detached, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -1723,6 +1750,7 @@ pub mod workers {
         .bind(&filters_json)
         .bind(input.concurrency)
         .bind(&input.instance_path)
+        .bind(input.poll_cooldown_secs)
         .bind(input.detached)
         .bind(&now)
         .bind(&now)
