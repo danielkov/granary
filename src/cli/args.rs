@@ -79,6 +79,8 @@ pub enum Commands {
 
     /// Show any entity by ID (auto-detects type from ID pattern)
     #[command(
+        visible_alias = "get",
+        visible_alias = "view",
         after_help = "EXAMPLES:\n    granary show my-project-abc1           # Show a project\n    granary show my-project-abc1-task-1    # Show a task\n    granary show sess-20260112-xyz1        # Show a session\n    granary show chkpt-abc123              # Show a checkpoint\n\nID PATTERNS:\n    project:    <name>-<4chars>              e.g., my-project-abc1\n    task:       <project-id>-task-<n>        e.g., my-project-abc1-task-1\n    session:    sess-<date>-<4chars>         e.g., sess-20260112-xyz1\n    checkpoint: chkpt-<6chars>               e.g., chkpt-abc123\n    comment:    <task-id>-comment-<n>        e.g., my-proj-abc1-task-1-comment-1\n    artifact:   <task-id>-artifact-<n>       e.g., my-proj-abc1-task-1-artifact-1"
     )]
     Show {
@@ -342,6 +344,7 @@ pub enum Commands {
 #[derive(Subcommand)]
 pub enum ProjectsAction {
     /// Create a new project
+    #[command(visible_alias = "add", visible_alias = "new")]
     Create {
         /// Project name
         name: String,
@@ -381,10 +384,22 @@ pub enum ProjectAction {
         tags: Option<String>,
     },
 
+    /// Mark project as done/complete
+    #[command(visible_alias = "complete")]
+    Done {
+        /// Also mark all tasks in the project as done
+        #[arg(long)]
+        complete_tasks: bool,
+    },
+
     /// Archive project
     Archive,
 
+    /// Unarchive project (restore from archived state)
+    Unarchive,
+
     /// List or create tasks in project
+    #[command(visible_alias = "task")]
     Tasks {
         #[command(subcommand)]
         action: Option<ProjectTasksAction>,
@@ -421,6 +436,7 @@ pub enum ProjectDepsAction {
 #[derive(Subcommand)]
 pub enum ProjectTasksAction {
     /// Create a new task
+    #[command(visible_alias = "add", visible_alias = "new")]
     Create {
         /// Task title
         title: String,
@@ -543,18 +559,21 @@ pub enum TaskAction {
     },
 
     /// List or create subtasks
+    #[command(visible_alias = "task")]
     Tasks {
         #[command(subcommand)]
         action: Option<SubtaskAction>,
     },
 
     /// List or create comments
+    #[command(visible_alias = "comment")]
     Comments {
         #[command(subcommand)]
         action: Option<CommentAction>,
     },
 
     /// List or manage artifacts
+    #[command(visible_alias = "artifact")]
     Artifacts {
         #[command(subcommand)]
         action: Option<ArtifactAction>,
@@ -582,6 +601,7 @@ pub enum DepsAction {
 #[derive(Subcommand)]
 pub enum SubtaskAction {
     /// Create a subtask
+    #[command(visible_alias = "add", visible_alias = "new")]
     Create {
         /// Subtask title
         title: String,
@@ -603,6 +623,7 @@ pub enum SubtaskAction {
 #[derive(Subcommand)]
 pub enum CommentAction {
     /// Create a comment
+    #[command(visible_alias = "add", visible_alias = "new")]
     Create {
         /// Comment content (positional argument)
         content_positional: Option<String>,
@@ -880,6 +901,7 @@ pub enum SteeringAction {
 #[derive(Subcommand)]
 pub enum InitiativesAction {
     /// Create a new initiative
+    #[command(visible_alias = "add", visible_alias = "new")]
     Create {
         /// Initiative name
         name: String,

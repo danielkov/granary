@@ -160,3 +160,94 @@ pub async fn archive_project(pool: &SqlitePool, id: &str) -> Result<Project> {
 
     get_project(pool, id).await
 }
+
+/// Unarchive a project (restore from archived state)
+pub async fn unarchive_project(pool: &SqlitePool, id: &str) -> Result<Project> {
+    let project = get_project(pool, id).await?;
+
+    if project.status == ProjectStatus::Active.as_str() {
+        return Err(GranaryError::Conflict(format!(
+            "Project {} is already active",
+            id
+        )));
+    }
+
+    db::projects::unarchive(pool, id).await?;
+
+    // Log event
+    db::events::create(
+        pool,
+        &CreateEvent {
+            event_type: EventType::ProjectUnarchived,
+            entity_type: EntityType::Project,
+            entity_id: id.to_string(),
+            actor: None,
+            session_id: None,
+            payload: serde_json::json!({}),
+        },
+    )
+    .await?;
+
+    get_project(pool, id).await
+}
+
+/// Complete a project (mark as done)
+pub async fn complete_project(
+    pool: &SqlitePool,
+    id: &str,
+    complete_tasks: bool,
+) -> Result<Project> {
+    let project = get_project(pool, id).await?;
+
+    if project.status == ProjectStatus::Done.as_str() {
+        return Err(GranaryError::Conflict(format!(
+            "Project {} is already done",
+            id
+        )));
+    }
+
+    // Optionally complete all tasks
+    let tasks_completed = if complete_tasks {
+        let tasks = crate::services::list_tasks_by_project(pool, id).await?;
+        let mut count = 0;
+        for task in tasks {
+            if task.status != "done" {
+                crate::services::complete_task(pool, &task.id, None).await?;
+                count += 1;
+            }
+        }
+        count
+    } else {
+        0
+    };
+
+    // Update project status
+    let project = update_project(
+        pool,
+        id,
+        UpdateProject {
+            status: Some(ProjectStatus::Done),
+            ..Default::default()
+        },
+    )
+    .await?;
+
+    // Log event
+    db::events::create(
+        pool,
+        &CreateEvent {
+            event_type: EventType::ProjectCompleted,
+            entity_type: EntityType::Project,
+            entity_id: id.to_string(),
+            actor: None,
+            session_id: None,
+            payload: serde_json::json!({
+                "tasks_completed": tasks_completed,
+                "complete_tasks": complete_tasks,
+            }),
+        },
+    )
+    .await?;
+
+    Ok(project)
+}

@@ -8,7 +8,9 @@ pub enum EventType {
     // Project events
     ProjectCreated,
     ProjectUpdated,
+    ProjectCompleted,
     ProjectArchived,
+    ProjectUnarchived,
 
     // Task events
     TaskCreated,
@@ -58,7 +60,9 @@ impl EventType {
         match self {
             EventType::ProjectCreated => "project.created".to_string(),
             EventType::ProjectUpdated => "project.updated".to_string(),
+            EventType::ProjectCompleted => "project.completed".to_string(),
             EventType::ProjectArchived => "project.archived".to_string(),
+            EventType::ProjectUnarchived => "project.unarchived".to_string(),
             EventType::TaskCreated => "task.created".to_string(),
             EventType::TaskUpdated => "task.updated".to_string(),
             EventType::TaskStatusChanged => "task.status_changed".to_string(),
@@ -96,7 +100,9 @@ impl std::str::FromStr for EventType {
         Ok(match s {
             "project.created" => EventType::ProjectCreated,
             "project.updated" => EventType::ProjectUpdated,
+            "project.completed" => EventType::ProjectCompleted,
             "project.archived" => EventType::ProjectArchived,
+            "project.unarchived" => EventType::ProjectUnarchived,
             "task.created" => EventType::TaskCreated,
             "task.updated" => EventType::TaskUpdated,
             "task.status_changed" => EventType::TaskStatusChanged,
