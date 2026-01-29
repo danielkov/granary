@@ -40,7 +40,7 @@ async fn run(cli: Cli) -> granary::Result<()> {
         }
 
         Commands::Projects { action, all } => {
-            projects::projects(action, all, format).await?;
+            projects::projects(action, all, format, cli.watch, cli.interval).await?;
         }
 
         Commands::Project { id, action } => {
@@ -60,7 +60,16 @@ async fn run(cli: Cli) -> granary::Result<()> {
             priority,
             owner,
         } => {
-            tasks::list_tasks(all, status, priority, owner, format).await?;
+            tasks::list_tasks(
+                all,
+                status,
+                priority,
+                owner,
+                format,
+                cli.watch,
+                cli.interval,
+            )
+            .await?;
         }
 
         Commands::Task { id, action } => {
@@ -95,7 +104,7 @@ async fn run(cli: Cli) -> granary::Result<()> {
         }
 
         Commands::Sessions { all } => {
-            sessions::list_sessions(all, format).await?;
+            sessions::list_sessions(all, format, cli.watch, cli.interval).await?;
         }
 
         Commands::Session { action } => {
@@ -103,7 +112,7 @@ async fn run(cli: Cli) -> granary::Result<()> {
         }
 
         Commands::Summary { token_budget } => {
-            summary::summary(token_budget, format).await?;
+            summary::summary(token_budget, format, cli.watch, cli.interval).await?;
         }
 
         Commands::Context { include, max_items } => {
@@ -140,11 +149,11 @@ async fn run(cli: Cli) -> granary::Result<()> {
         }
 
         Commands::Search { query } => {
-            search::search(&query, format).await?;
+            search::search(&query, format, cli.watch, cli.interval).await?;
         }
 
         Commands::Initiatives { action, all } => {
-            initiatives::initiatives(action, all, format).await?;
+            initiatives::initiatives(action, all, format, cli.watch, cli.interval).await?;
         }
 
         Commands::Initiative { id, action } => {
@@ -156,7 +165,7 @@ async fn run(cli: Cli) -> granary::Result<()> {
         }
 
         Commands::Workers { all } => {
-            workers::list_workers(all, format).await?;
+            workers::list_workers(all, format, cli.watch, cli.interval).await?;
         }
 
         Commands::Worker { command } => {
@@ -169,7 +178,7 @@ async fn run(cli: Cli) -> granary::Result<()> {
             all,
             limit,
         } => {
-            run::list_runs(worker, status, all, limit, format).await?;
+            run::list_runs(worker, status, all, limit, format, cli.watch, cli.interval).await?;
         }
 
         Commands::Run { command } => {

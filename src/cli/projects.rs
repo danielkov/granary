@@ -1,18 +1,43 @@
 use crate::cli::args::{ProjectAction, ProjectDepsAction, ProjectTasksAction, ProjectsAction};
+use crate::cli::watch::{watch_loop, watch_status_line};
 use crate::db;
 use crate::error::Result;
 use crate::models::*;
 use crate::output::{Formatter, OutputFormat};
 use crate::services::{self, Workspace};
+use std::time::Duration;
 
 /// Handle projects command (list or create)
 pub async fn projects(
     action: Option<ProjectsAction>,
     include_archived: bool,
     format: OutputFormat,
+    watch: bool,
+    interval: u64,
 ) -> Result<()> {
     match action {
-        None => list_projects(include_archived, format).await,
+        None => {
+            // List projects - support watch mode
+            if watch {
+                let interval_duration = Duration::from_secs(interval);
+                watch_loop(interval_duration, || async {
+                    let output = fetch_and_format_projects(include_archived, format)
+                        .await
+                        .map_err(|e| anyhow::anyhow!("{}", e))?;
+                    Ok(format!(
+                        "{}\n\n{}",
+                        watch_status_line(interval_duration),
+                        output
+                    ))
+                })
+                .await?;
+                Ok(())
+            } else {
+                let output = fetch_and_format_projects(include_archived, format).await?;
+                println!("{}", output);
+                Ok(())
+            }
+        }
         Some(ProjectsAction::Create {
             name,
             description,
@@ -22,16 +47,14 @@ pub async fn projects(
     }
 }
 
-/// List all projects
-pub async fn list_projects(include_archived: bool, format: OutputFormat) -> Result<()> {
+/// Fetch and format all projects as a string
+async fn fetch_and_format_projects(include_archived: bool, format: OutputFormat) -> Result<String> {
     let workspace = Workspace::find()?;
     let pool = workspace.pool().await?;
 
     let projects = services::list_projects(&pool, include_archived).await?;
     let formatter = Formatter::new(format);
-    println!("{}", formatter.format_projects(&projects));
-
-    Ok(())
+    Ok(formatter.format_projects(&projects))
 }
 
 /// Show or manage a project

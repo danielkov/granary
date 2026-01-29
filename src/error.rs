@@ -110,6 +110,15 @@ pub enum GranaryError {
 
     #[error("Daemon error: {0}")]
     DaemonError(String),
+
+    #[error("{0}")]
+    Other(String),
+}
+
+impl From<anyhow::Error> for GranaryError {
+    fn from(err: anyhow::Error) -> Self {
+        GranaryError::Other(err.to_string())
+    }
 }
 
 impl GranaryError {
@@ -156,7 +165,8 @@ impl GranaryError {
             | GranaryError::Toml(_)
             | GranaryError::DaemonConnection(_)
             | GranaryError::DaemonProtocol(_)
-            | GranaryError::DaemonError(_) => exit_codes::INTERNAL,
+            | GranaryError::DaemonError(_)
+            | GranaryError::Other(_) => exit_codes::INTERNAL,
         }
     }
 }

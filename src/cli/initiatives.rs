@@ -1,20 +1,42 @@
 //! CLI handlers for initiative commands
 
 use crate::cli::args::{InitiativeAction, InitiativesAction};
+use crate::cli::watch::{watch_loop, watch_status_line};
 use crate::db;
 use crate::error::Result;
 use crate::models::initiative::{CreateInitiative, UpdateInitiative};
 use crate::output::{Formatter, OutputFormat};
 use crate::services::{self, Workspace};
+use std::time::Duration;
 
 /// Handle initiatives command (list or create)
 pub async fn initiatives(
     action: Option<InitiativesAction>,
     include_archived: bool,
     format: OutputFormat,
+    watch: bool,
+    interval: u64,
 ) -> Result<()> {
     match action {
-        None => list_initiatives(include_archived, format).await,
+        None => {
+            // List initiatives - support watch mode
+            if watch {
+                let interval_duration = Duration::from_secs(interval);
+                watch_loop(interval_duration, || async {
+                    let output = fetch_and_format_initiatives(include_archived, format).await?;
+                    Ok(format!(
+                        "{}\n{}",
+                        watch_status_line(interval_duration),
+                        output
+                    ))
+                })
+                .await
+            } else {
+                let output = fetch_and_format_initiatives(include_archived, format).await?;
+                println!("{}", output);
+                Ok(())
+            }
+        }
         Some(InitiativesAction::Create {
             name,
             description,
@@ -24,15 +46,23 @@ pub async fn initiatives(
     }
 }
 
-/// List all initiatives
-pub async fn list_initiatives(include_archived: bool, format: OutputFormat) -> Result<()> {
+/// Fetch and format all initiatives as a string
+async fn fetch_and_format_initiatives(
+    include_archived: bool,
+    format: OutputFormat,
+) -> Result<String> {
     let workspace = Workspace::find()?;
     let pool = workspace.pool().await?;
 
     let initiatives = services::list_initiatives(&pool, include_archived).await?;
     let formatter = Formatter::new(format);
-    println!("{}", formatter.format_initiatives(&initiatives));
+    Ok(formatter.format_initiatives(&initiatives))
+}
 
+/// List all initiatives
+pub async fn list_initiatives(include_archived: bool, format: OutputFormat) -> Result<()> {
+    let output = fetch_and_format_initiatives(include_archived, format).await?;
+    println!("{}", output);
     Ok(())
 }
 
