@@ -12,13 +12,19 @@ A CLI context hub for agentic work. Granary supercharges your agentic workflows.
 
 ## Getting started for Claude Code
 
-1. Add plugin
+1. Add the granary marketplace
 
 ```sh
 claude plugin marketplace add danielkov/granary
 ```
 
-2. Launch Claude and verify skills are available with `/skills` - you should see something like:
+2. Install the granary plugin from the marketplace
+
+```sh
+claude plugin install granary@granary
+```
+
+3. Launch Claude and verify skills are available with `/skills` - you should see something like:
 
 ```sh
   granary-orchestrate · ~43 tokens
@@ -28,7 +34,7 @@ claude plugin marketplace add danielkov/granary
   granary-execute-task · ~28 tokens
 ```
 
-3. Prompt Claude to `set up granary for this project`
+4. Prompt Claude to `set up granary for this project`
 
 Claude will install and initialize `granary` in your project.
 
