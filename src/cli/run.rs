@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use crate::cli::args::RunCommand;
+use crate::cli::watch::{watch_loop, watch_status_line};
 use crate::daemon::{LogTarget, ensure_daemon};
 use crate::db;
 use crate::error::{GranaryError, Result};
@@ -20,14 +21,56 @@ pub async fn list_runs(
     all: bool,
     limit: u32,
     format: OutputFormat,
+    watch: bool,
+    interval: u64,
 ) -> Result<()> {
+    if watch {
+        let interval_duration = Duration::from_secs(interval);
+        watch_loop(interval_duration, || {
+            let worker_id = worker_id.clone();
+            let status = status.clone();
+            async move {
+                let output = fetch_and_format_runs(
+                    worker_id.as_deref(),
+                    status.as_deref(),
+                    all,
+                    limit,
+                    format,
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+                Ok(format!(
+                    "{}\n{}",
+                    watch_status_line(interval_duration),
+                    output
+                ))
+            }
+        })
+        .await?;
+    } else {
+        let output =
+            fetch_and_format_runs(worker_id.as_deref(), status.as_deref(), all, limit, format)
+                .await?;
+        print!("{}", output);
+    }
+    Ok(())
+}
+
+/// Fetch and format runs for display
+async fn fetch_and_format_runs(
+    worker_id: Option<&str>,
+    status: Option<&str>,
+    all: bool,
+    limit: u32,
+    format: OutputFormat,
+) -> Result<String> {
     let global_pool = global_config_service::global_pool().await?;
 
     // Parse status filter if provided
-    let status_filter: Option<RunStatus> = status.as_ref().and_then(|s| s.parse().ok());
+    let status_filter: Option<RunStatus> = status.and_then(|s| s.parse().ok());
 
     // Get runs based on filters
-    let runs = if let Some(worker) = &worker_id {
+    let runs = if let Some(worker) = worker_id {
         db::runs::list_by_worker(&global_pool, worker).await?
     } else {
         db::runs::list_all(&global_pool).await?
@@ -65,18 +108,17 @@ pub async fn list_runs(
 
     if runs.is_empty() {
         if all {
-            println!("No runs found.");
+            return Ok("No runs found.\n".to_string());
         } else {
-            println!("No active runs found.");
-            println!("Use --all to include completed/failed/cancelled runs.");
+            return Ok(
+                "No active runs found.\nUse --all to include completed/failed/cancelled runs.\n"
+                    .to_string(),
+            );
         }
-        return Ok(());
     }
 
     let formatter = Formatter::new(format);
-    println!("{}", formatter.format_runs(&runs));
-
-    Ok(())
+    Ok(format!("{}\n", formatter.format_runs(&runs)))
 }
 
 /// Handle run subcommands

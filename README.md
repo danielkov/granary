@@ -183,6 +183,28 @@ granary search "api"             # Search in human-readable table
 granary search "api" --json      # JSON for parsing
 ```
 
+## Watch Mode
+
+Monitor changes in real-time with `--watch`. The output refreshes automatically at a configurable interval:
+
+```sh
+# Watch tasks with default 2-second refresh
+granary tasks --watch
+
+# Watch workers with 5-second refresh
+granary workers --watch --interval 5
+
+# Watch runs filtered by status
+granary runs --watch --status running
+
+# Watch search results
+granary search "api" --watch
+```
+
+Supported commands: `tasks`, `projects`, `workers`, `runs`, `sessions`, `initiatives`, `search`, `summary`
+
+Press `Ctrl+C` to exit watch mode.
+
 ## Integration with Claude Code
 
 Granary works seamlessly with Claude Code and other LLM coding assistants:

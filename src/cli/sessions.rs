@@ -1,20 +1,41 @@
 use crate::cli::args::SessionAction;
+use crate::cli::watch::{watch_loop, watch_status_line};
 use crate::error::{GranaryError, Result};
 use crate::models::*;
 use crate::output::{Formatter, OutputFormat};
 use crate::services::{self, Workspace};
+use std::time::Duration;
 
 /// List sessions
-pub async fn list_sessions(include_closed: bool, format: OutputFormat) -> Result<()> {
+pub async fn list_sessions(
+    include_closed: bool,
+    format: OutputFormat,
+    watch: bool,
+    interval: u64,
+) -> Result<()> {
+    if watch {
+        let interval = Duration::from_secs(interval);
+        watch_loop(interval, || async {
+            let output = fetch_and_format_sessions(include_closed, format).await?;
+            Ok(format!("{}\n{}", watch_status_line(interval), output))
+        })
+        .await
+    } else {
+        let output = fetch_and_format_sessions(include_closed, format).await?;
+        println!("{}", output);
+        Ok(())
+    }
+}
+
+/// Fetch sessions and format them as a string
+async fn fetch_and_format_sessions(include_closed: bool, format: OutputFormat) -> Result<String> {
     let workspace = Workspace::find()?;
     let pool = workspace.pool().await?;
 
     let sessions = services::list_sessions(&pool, include_closed).await?;
 
     let formatter = Formatter::new(format);
-    println!("{}", formatter.format_sessions(&sessions));
-
-    Ok(())
+    Ok(formatter.format_sessions(&sessions))
 }
 
 /// Handle session subcommands

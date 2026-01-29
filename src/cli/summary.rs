@@ -1,28 +1,132 @@
+use std::time::Duration;
+
+use crate::cli::watch::watch_loop;
 use crate::error::Result;
 use crate::output::{OutputFormat, json, prompt};
 use crate::services::{self, Workspace};
 
 /// Generate summary
-pub async fn summary(token_budget: Option<usize>, format: OutputFormat) -> Result<()> {
+pub async fn summary(
+    token_budget: Option<usize>,
+    format: OutputFormat,
+    watch: bool,
+    interval: u64,
+) -> Result<()> {
+    if watch {
+        let interval_duration = Duration::from_secs(interval);
+        watch_loop(interval_duration, || async {
+            render_summary(token_budget, format).await
+        })
+        .await?;
+    } else {
+        let output = render_summary(token_budget, format).await?;
+        print!("{}", output);
+    }
+
+    Ok(())
+}
+
+/// Render summary output as a string (for both regular and watch mode)
+async fn render_summary(token_budget: Option<usize>, format: OutputFormat) -> Result<String> {
     let workspace = Workspace::find()?;
     let pool = workspace.pool().await?;
 
     let summary = services::generate_summary(&pool, &workspace, token_budget).await?;
 
-    match format {
-        OutputFormat::Json => {
-            println!("{}", json::format_summary(&summary));
+    let output = match format {
+        OutputFormat::Json => json::format_summary(&summary),
+        OutputFormat::Prompt => prompt::format_summary(&summary),
+        _ => format_summary_table(&summary),
+    };
+
+    Ok(output)
+}
+
+/// Format summary as a table string
+fn format_summary_table(summary: &json::SummaryOutput) -> String {
+    let mut output = String::new();
+    output.push_str("=== Summary ===\n\n");
+
+    if let Some(session) = &summary.session {
+        output.push_str(&format!(
+            "Session: {} ({})\n",
+            session.name.as_deref().unwrap_or("-"),
+            session.id
+        ));
+        if let Some(mode) = &session.mode {
+            output.push_str(&format!("Mode: {}\n", mode));
         }
-        OutputFormat::Prompt => {
-            println!("{}", prompt::format_summary(&summary));
+        if let Some(focus) = &session.focus_task_id {
+            output.push_str(&format!("Focus: {}\n", focus));
         }
-        _ => {
-            // Table/default format
-            print_summary_table(&summary);
-        }
+        output.push('\n');
     }
 
-    Ok(())
+    output.push_str("State of Work:\n");
+    output.push_str(&format!("  Total tasks: {}\n", summary.state.total_tasks));
+    output.push_str(&format!(
+        "  By status: {} todo, {} in progress, {} done, {} blocked\n",
+        summary.state.by_status.todo,
+        summary.state.by_status.in_progress,
+        summary.state.by_status.done,
+        summary.state.by_status.blocked
+    ));
+    output.push_str(&format!(
+        "  By priority: {} P0, {} P1, {} P2, {} P3, {} P4\n",
+        summary.state.by_priority.p0,
+        summary.state.by_priority.p1,
+        summary.state.by_priority.p2,
+        summary.state.by_priority.p3,
+        summary.state.by_priority.p4
+    ));
+    output.push('\n');
+
+    if let Some(focus) = &summary.focus_task {
+        output.push_str("Focus Task:\n");
+        output.push_str(&format!("  {} ({})\n", focus.title, focus.id));
+        output.push_str(&format!(
+            "  Status: {} | Priority: {}\n",
+            focus.status, focus.priority
+        ));
+        if let Some(desc) = &focus.description {
+            output.push_str(&format!("  {}\n", desc));
+        }
+        output.push('\n');
+    }
+
+    if !summary.blockers.is_empty() {
+        output.push_str(&format!("Blockers ({}):\n", summary.blockers.len()));
+        for task in &summary.blockers {
+            output.push_str(&format!("  - {} ({})", task.title, task.id));
+            if let Some(reason) = &task.blocked_reason {
+                output.push_str(&format!(": {}", reason));
+            }
+            output.push('\n');
+        }
+        output.push('\n');
+    }
+
+    if !summary.next_actions.is_empty() {
+        output.push_str("Next Actions:\n");
+        for task in &summary.next_actions {
+            output.push_str(&format!(
+                "  - [{}] {} ({})\n",
+                task.priority, task.title, task.id
+            ));
+        }
+        output.push('\n');
+    }
+
+    if !summary.recent_decisions.is_empty() {
+        output.push_str("Recent Decisions:\n");
+        for comment in &summary.recent_decisions {
+            let author = comment.author.as_deref().unwrap_or("unknown");
+            output.push_str(&format!("  - {}: {}\n", author, comment.content));
+        }
+        output.push('\n');
+    }
+
+    output
 }
 
 /// Generate context pack
@@ -90,81 +194,4 @@ pub async fn handoff(
     }
 
     Ok(())
-}
-
-fn print_summary_table(summary: &json::SummaryOutput) {
-    println!("=== Summary ===\n");
-
-    if let Some(session) = &summary.session {
-        println!(
-            "Session: {} ({})",
-            session.name.as_deref().unwrap_or("-"),
-            session.id
-        );
-        if let Some(mode) = &session.mode {
-            println!("Mode: {}", mode);
-        }
-        if let Some(focus) = &session.focus_task_id {
-            println!("Focus: {}", focus);
-        }
-        println!();
-    }
-
-    println!("State of Work:");
-    println!("  Total tasks: {}", summary.state.total_tasks);
-    println!(
-        "  By status: {} todo, {} in progress, {} done, {} blocked",
-        summary.state.by_status.todo,
-        summary.state.by_status.in_progress,
-        summary.state.by_status.done,
-        summary.state.by_status.blocked
-    );
-    println!(
-        "  By priority: {} P0, {} P1, {} P2, {} P3, {} P4",
-        summary.state.by_priority.p0,
-        summary.state.by_priority.p1,
-        summary.state.by_priority.p2,
-        summary.state.by_priority.p3,
-        summary.state.by_priority.p4
-    );
-    println!();
-
-    if let Some(focus) = &summary.focus_task {
-        println!("Focus Task:");
-        println!("  {} ({})", focus.title, focus.id);
-        println!("  Status: {} | Priority: {}", focus.status, focus.priority);
-        if let Some(desc) = &focus.description {
-            println!("  {}", desc);
-        }
-        println!();
-    }
-
-    if !summary.blockers.is_empty() {
-        println!("Blockers ({}):", summary.blockers.len());
-        for task in &summary.blockers {
-            print!("  - {} ({})", task.title, task.id);
-            if let Some(reason) = &task.blocked_reason {
-                print!(": {}", reason);
-            }
-            println!();
-        }
-        println!();
-    }
-
-    if !summary.next_actions.is_empty() {
-        println!("Next Actions:");
-        for task in &summary.next_actions {
-            println!("  - [{}] {} ({})", task.priority, task.title, task.id);
-        }
-        println!();
-    }
-
-    if !summary.recent_decisions.is_empty() {
-        println!("Recent Decisions:");
-        for comment in &summary.recent_decisions {
-            let author = comment.author.as_deref().unwrap_or("unknown");
-            println!("  - {}: {}", author, comment.content);
-        }
-        println!();
-    }
 }

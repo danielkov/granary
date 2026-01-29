@@ -1,9 +1,11 @@
 use crate::cli::args::{ArtifactAction, CommentAction, DepsAction, SubtaskAction, TaskAction};
+use crate::cli::watch::{watch_loop, watch_status_line};
 use crate::db;
 use crate::error::Result;
 use crate::models::*;
 use crate::output::{Formatter, OutputFormat};
 use crate::services::{self, Workspace};
+use std::time::Duration;
 
 /// List tasks
 pub async fn list_tasks(
@@ -12,7 +14,43 @@ pub async fn list_tasks(
     priority: Option<String>,
     owner: Option<String>,
     format: OutputFormat,
+    watch: bool,
+    interval: u64,
 ) -> Result<()> {
+    if watch {
+        let interval_duration = Duration::from_secs(interval);
+        watch_loop(interval_duration, || async {
+            let output = fetch_and_format_tasks(
+                all,
+                status.clone(),
+                priority.clone(),
+                owner.clone(),
+                format,
+            )
+            .await?;
+            Ok(format!(
+                "{}\n\n{}",
+                watch_status_line(interval_duration),
+                output
+            ))
+        })
+        .await?;
+    } else {
+        let output = fetch_and_format_tasks(all, status, priority, owner, format).await?;
+        println!("{}", output);
+    }
+
+    Ok(())
+}
+
+/// Fetch tasks and format them for display
+async fn fetch_and_format_tasks(
+    all: bool,
+    status: Option<String>,
+    priority: Option<String>,
+    owner: Option<String>,
+    format: OutputFormat,
+) -> Result<String> {
     let workspace = Workspace::find()?;
     let pool = workspace.pool().await?;
 
@@ -48,9 +86,7 @@ pub async fn list_tasks(
     let tasks_with_deps = services::get_tasks_with_deps(&pool, tasks).await?;
 
     let formatter = Formatter::new(format);
-    println!("{}", formatter.format_tasks_with_deps(&tasks_with_deps));
-
-    Ok(())
+    Ok(formatter.format_tasks_with_deps(&tasks_with_deps))
 }
 
 /// Show or manage a task

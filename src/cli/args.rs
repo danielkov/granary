@@ -27,6 +27,14 @@ pub struct Cli {
     /// Session ID override
     #[arg(long, global = true, env = "GRANARY_SESSION")]
     pub session: Option<String>,
+
+    /// Watch mode - continuously poll and update output (works with: tasks, projects, workers, runs, sessions, initiatives, search, summary)
+    #[arg(long, global = true)]
+    pub watch: bool,
+
+    /// Polling interval in seconds for watch mode
+    #[arg(long, global = true, default_value = "2", value_name = "SECONDS")]
+    pub interval: u64,
 }
 
 impl Cli {

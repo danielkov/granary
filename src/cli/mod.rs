@@ -14,6 +14,7 @@ pub mod show;
 pub mod summary;
 pub mod tasks;
 pub mod update;
+pub mod watch;
 pub mod worker;
 pub mod workers;
 
