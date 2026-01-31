@@ -49,7 +49,7 @@ pub mod projects {
                 .await?
         } else {
             sqlx::query_as::<_, Project>(
-                "SELECT * FROM projects WHERE status = 'active' ORDER BY created_at DESC",
+                "SELECT * FROM projects WHERE status IN ('active', 'done') ORDER BY created_at DESC",
             )
             .fetch_all(pool)
             .await?
@@ -84,6 +84,16 @@ pub mod projects {
     pub async fn archive(pool: &SqlitePool, id: &str) -> Result<bool> {
         let result =
             sqlx::query("UPDATE projects SET status = 'archived', updated_at = ? WHERE id = ?")
+                .bind(chrono::Utc::now().to_rfc3339())
+                .bind(id)
+                .execute(pool)
+                .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn unarchive(pool: &SqlitePool, id: &str) -> Result<bool> {
+        let result =
+            sqlx::query("UPDATE projects SET status = 'active', updated_at = ? WHERE id = ?")
                 .bind(chrono::Utc::now().to_rfc3339())
                 .bind(id)
                 .execute(pool)

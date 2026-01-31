@@ -7,7 +7,34 @@ use crate::models::*;
 /// Create a new task in a project
 pub async fn create_task(pool: &SqlitePool, input: CreateTask) -> Result<Task> {
     // Verify project exists
-    let _project = crate::services::get_project(pool, &input.project_id).await?;
+    let project = crate::services::get_project(pool, &input.project_id).await?;
+
+    // If project is done, revert to active when adding a new task
+    if project.status == ProjectStatus::Done.as_str() {
+        crate::services::update_project(
+            pool,
+            &input.project_id,
+            UpdateProject {
+                status: Some(ProjectStatus::Active),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+        // Log reactivation event
+        db::events::create(
+            pool,
+            &CreateEvent {
+                event_type: EventType::ProjectUpdated,
+                entity_type: EntityType::Project,
+                entity_id: input.project_id.clone(),
+                actor: None,
+                session_id: None,
+                payload: serde_json::json!({"action": "reactivated_by_new_task"}),
+            },
+        )
+        .await?;
+    }
 
     // Get next task number
     let scope = format!("project:{}:task", input.project_id);
@@ -314,6 +341,43 @@ pub async fn complete_task(pool: &SqlitePool, id: &str, comment: Option<&str>) -
         },
     )
     .await?;
+
+    // Check if this was the last incomplete task in the project
+    // If so, auto-complete the project
+    let remaining_tasks = db::tasks::list_by_project(pool, &task.project_id).await?;
+    let all_done = remaining_tasks.iter().all(|t| t.status == "done");
+
+    if all_done {
+        let project = crate::services::get_project(pool, &task.project_id).await?;
+        if project.status == ProjectStatus::Active.as_str() {
+            crate::services::update_project(
+                pool,
+                &task.project_id,
+                UpdateProject {
+                    status: Some(ProjectStatus::Done),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+            // Log implicit completion event
+            db::events::create(
+                pool,
+                &CreateEvent {
+                    event_type: EventType::ProjectUpdated,
+                    entity_type: EntityType::Project,
+                    entity_id: task.project_id.clone(),
+                    actor: None,
+                    session_id: None,
+                    payload: serde_json::json!({
+                        "action": "implicit_completion",
+                        "trigger_task": task.id,
+                    }),
+                },
+            )
+            .await?;
+        }
+    }
 
     get_task(pool, id).await
 }
