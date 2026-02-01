@@ -68,21 +68,6 @@ impl Workspace {
         Err(GranaryError::WorkspaceNotFound)
     }
 
-    /// Find workspace or create one at the specified path
-    pub fn find_or_create(path: Option<&Path>) -> Result<Self> {
-        // Try to find existing workspace first
-        if let Ok(ws) = Self::find() {
-            return Ok(ws);
-        }
-
-        // Create new workspace
-        let root = path
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
-
-        Self::create(&root)
-    }
-
     /// Create a new workspace at the specified path
     pub fn create(root: &Path) -> Result<Self> {
         let granary_dir = root.join(WORKSPACE_DIR);
@@ -103,31 +88,20 @@ impl Workspace {
         })
     }
 
-    /// Create a workspace at the given path, or open it if `.granary` already exists there.
-    ///
-    /// Unlike `find_or_create`, this does NOT walk up the directory tree.
+    /// Open the workspace at `root`, creating it if it doesn't exist. Does not search parent directories.
     pub fn create_or_open(root: &Path) -> Result<Self> {
-        let granary_dir = root.join(WORKSPACE_DIR);
-        if granary_dir.exists() && granary_dir.is_dir() {
-            return Ok(Self {
-                root: root.to_path_buf(),
-                granary_dir: granary_dir.clone(),
-                db_path: granary_dir.join(DB_FILE),
-            });
+        if root.join(WORKSPACE_DIR).is_dir() {
+            return Self::open(root);
         }
-
         Self::create(root)
     }
 
-    /// Open an existing workspace at the specified path.
-    ///
-    /// Unlike `find()`, this does not walk up the directory tree.
-    /// The path should be the root directory containing `.granary/`.
+    /// Open an existing workspace at the specified path. Does not search parent directories.
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
         let granary_dir = root.join(WORKSPACE_DIR);
 
-        if !granary_dir.exists() {
+        if !granary_dir.is_dir() {
             return Err(GranaryError::WorkspaceNotFound);
         }
 
