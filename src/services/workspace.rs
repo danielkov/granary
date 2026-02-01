@@ -103,6 +103,22 @@ impl Workspace {
         })
     }
 
+    /// Create a workspace at the given path, or open it if `.granary` already exists there.
+    ///
+    /// Unlike `find_or_create`, this does NOT walk up the directory tree.
+    pub fn create_or_open(root: &Path) -> Result<Self> {
+        let granary_dir = root.join(WORKSPACE_DIR);
+        if granary_dir.exists() && granary_dir.is_dir() {
+            return Ok(Self {
+                root: root.to_path_buf(),
+                granary_dir: granary_dir.clone(),
+                db_path: granary_dir.join(DB_FILE),
+            });
+        }
+
+        Self::create(root)
+    }
+
     /// Open an existing workspace at the specified path.
     ///
     /// Unlike `find()`, this does not walk up the directory tree.

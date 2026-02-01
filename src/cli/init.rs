@@ -10,7 +10,8 @@ pub async fn init() -> Result<()> {
     // Check if this is the first run BEFORE creating the ~/.granary directory
     let first_run = global_config_service::is_first_run()?;
 
-    let workspace = Workspace::find_or_create(None)?;
+    let cwd = std::env::current_dir()?;
+    let workspace = Workspace::create_or_open(&cwd)?;
     let _pool = workspace.init_db().await?;
 
     // Find all agent instruction files in workspace
