@@ -1,4 +1,6 @@
-use crate::cli::args::{ProjectAction, ProjectDepsAction, ProjectTasksAction, ProjectsAction};
+use crate::cli::args::{
+    ProjectAction, ProjectDepsAction, ProjectSteerAction, ProjectTasksAction, ProjectsAction,
+};
 use crate::cli::watch::{watch_loop, watch_status_line};
 use crate::db;
 use crate::error::Result;
@@ -151,13 +153,72 @@ pub async fn project(id: &str, action: Option<ProjectAction>, format: OutputForm
                         }
                     }
 
-                    println!("{}", formatter.format_task(&task));
+                    println!("{}", formatter.format_task_created(&task));
                 }
             }
         }
 
         Some(ProjectAction::Deps { action }) => {
             handle_deps_action(&pool, id, action, format).await?;
+        }
+
+        Some(ProjectAction::Summary) => {
+            let project = services::get_project(&pool, id).await?;
+            let tasks = services::list_tasks_by_project(&pool, id).await?;
+
+            let done_count = tasks.iter().filter(|t| t.status == "done").count();
+            let total = tasks.len();
+
+            println!("## {} ({})", project.name, project.id);
+            println!();
+            if let Some(desc) = &project.description {
+                println!("{}", desc);
+                println!();
+            }
+            println!("Progress: {}/{} tasks done", done_count, total);
+            println!();
+            println!("Tasks:");
+            for task in &tasks {
+                let checkbox = if task.status == "done" { "[x]" } else { "[ ]" };
+                println!("  {} {} ({})", checkbox, task.title, task.id);
+            }
+        }
+
+        Some(ProjectAction::Ready) => {
+            // Validate project has tasks
+            let tasks = services::list_tasks_by_project(&pool, id).await?;
+
+            if tasks.is_empty() {
+                println!("Project has no tasks. Create tasks before marking ready.");
+                return Ok(());
+            }
+
+            // Count draft tasks
+            let draft_count = tasks.iter().filter(|t| t.status == "draft").count();
+
+            // Get project dependencies
+            let deps = db::project_dependencies::list(&pool, id).await?;
+
+            // Get steering files for this project
+            let steering_files = db::steering::list_by_scope(&pool, "project", id).await?;
+
+            println!("Project ready: {}", id);
+            println!();
+            println!("Tasks: {}", tasks.len());
+            println!("Dependencies configured: {}", deps.len());
+            println!("Steering files: {}", steering_files.len());
+
+            if draft_count > 0 {
+                println!();
+                println!(
+                    "Warning: {} draft task(s) found. Use `granary task <id> ready` to activate.",
+                    draft_count
+                );
+            }
+        }
+
+        Some(ProjectAction::Steer { action }) => {
+            handle_steer_action(&pool, id, action).await?;
         }
     }
 
@@ -299,4 +360,42 @@ fn parse_tags(tags_str: &str) -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// Handle project steering actions
+async fn handle_steer_action(
+    pool: &sqlx::SqlitePool,
+    project_id: &str,
+    action: ProjectSteerAction,
+) -> Result<()> {
+    match action {
+        ProjectSteerAction::Add { path, mode } => {
+            db::steering::add(pool, &path, &mode, Some("project"), Some(project_id)).await?;
+            println!("Added steering file: {} [project: {}]", path, project_id);
+        }
+
+        ProjectSteerAction::Rm { path } => {
+            let removed =
+                db::steering::remove(pool, &path, Some("project"), Some(project_id)).await?;
+            if removed {
+                println!("Removed steering file: {} [project: {}]", path, project_id);
+            } else {
+                println!("Steering file not found: {}", path);
+            }
+        }
+
+        ProjectSteerAction::List => {
+            let files = db::steering::list_by_scope(pool, "project", project_id).await?;
+            if files.is_empty() {
+                println!("No steering files for project {}", project_id);
+            } else {
+                println!("Steering files for {}:", project_id);
+                for file in files {
+                    println!("  {} [{}]", file.path, file.mode);
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

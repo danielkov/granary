@@ -263,6 +263,17 @@ impl Formatter {
             _ => table::format_runs(runs),
         }
     }
+
+    /// Format task creation confirmation
+    /// For table/text formats: single line "Task created: <task-id>"
+    /// For JSON: full task object for scripting compatibility
+    pub fn format_task_created(&self, task: &Task) -> String {
+        match self.format {
+            OutputFormat::Json => json::format_task(task),
+            OutputFormat::Yaml => yaml_format_task(task),
+            _ => format!("Task created: {}", task.id),
+        }
+    }
 }
 
 // YAML formatters (using serde_yaml)

@@ -425,10 +425,17 @@ fn convert_to_steering_info(
             None
         };
 
+        // Determine scope from scope_type
+        let scope = match file.scope_type.as_deref() {
+            None => Some("global".to_string()),
+            Some(st) => Some(st.to_string()),
+        };
+
         result.push(SteeringInfo {
             path: file.path,
             mode: file.mode,
             content,
+            scope,
         });
     }
 

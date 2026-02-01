@@ -209,7 +209,7 @@ pub async fn task(id: &str, action: Option<TaskAction>, format: OutputFormat) ->
                 )
                 .await?;
 
-                println!("{}", formatter.format_task(&subtask));
+                println!("{}", formatter.format_task_created(&subtask));
             }
         },
 
