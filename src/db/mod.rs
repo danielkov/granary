@@ -509,7 +509,7 @@ pub mod tasks {
         project_ids: Option<&[String]>,
     ) -> Result<Option<Task>> {
         // Build query for next task:
-        // 1. Status is todo or in_progress (NOT draft)
+        // 1. Status is todo
         // 2. Not blocked
         // 3. All dependencies are done
         // 4. Order by priority, due_at, created_at
@@ -517,7 +517,7 @@ pub mod tasks {
         let base_query = r#"
             SELECT t.*
             FROM tasks t
-            WHERE t.status IN ('todo', 'in_progress')
+            WHERE t.status IS 'todo'
               AND t.blocked_reason IS NULL
               AND NOT EXISTS (
                   SELECT 1 FROM task_dependencies td
@@ -575,11 +575,11 @@ pub mod tasks {
         project_ids: Option<&[String]>,
     ) -> Result<Vec<Task>> {
         // Same query as get_next but without LIMIT 1
-        // Draft tasks are excluded (only 'todo' and 'in_progress' are actionable)
+        // Draft tasks are excluded (only 'todo' is actionable)
         let base_query = r#"
             SELECT t.*
             FROM tasks t
-            WHERE t.status IN ('todo', 'in_progress')
+            WHERE t.status IS 'todo'
               AND t.blocked_reason IS NULL
               AND NOT EXISTS (
                   SELECT 1 FROM task_dependencies td
