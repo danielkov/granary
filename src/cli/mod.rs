@@ -4,8 +4,10 @@ pub mod checkpoints;
 pub mod comments;
 pub mod config;
 pub mod daemon;
+pub mod entrypoint;
 pub mod init;
 pub mod initiatives;
+pub mod plan;
 pub mod projects;
 pub mod run;
 pub mod search;
@@ -15,6 +17,7 @@ pub mod summary;
 pub mod tasks;
 pub mod update;
 pub mod watch;
+pub mod work;
 pub mod worker;
 pub mod workers;
 

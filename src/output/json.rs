@@ -158,11 +158,14 @@ pub fn format_summary(summary: &SummaryOutput) -> String {
 }
 
 /// Steering file information for context packs
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct SteeringInfo {
     pub path: String,
     pub mode: String,
     pub content: Option<String>,
+    /// Scope of the steering file: "global", "project", or "task"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 /// Format a context pack as JSON

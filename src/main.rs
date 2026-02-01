@@ -3,8 +3,8 @@ use std::process::ExitCode;
 
 use granary::cli::args::{Cli, Commands};
 use granary::cli::{
-    batch, checkpoints, config, daemon, init, initiatives, projects, run, search, sessions, show,
-    summary, tasks, update, worker, workers,
+    batch, checkpoints, config, daemon, entrypoint, init, initiatives, plan, projects, run, search,
+    sessions, show, summary, tasks, update, work, worker, workers,
 };
 use granary::error::{GranaryError, exit_codes};
 
@@ -26,13 +26,29 @@ async fn main() -> ExitCode {
 async fn run(cli: Cli) -> granary::Result<()> {
     let format = cli.output_format();
 
-    match cli.command {
+    let command = match cli.command {
+        Some(cmd) => cmd,
+        None => {
+            entrypoint::show_entry_point().await?;
+            return Ok(());
+        }
+    };
+
+    match command {
         Commands::Init => {
             init::init().await?;
         }
 
         Commands::Doctor => {
             init::doctor().await?;
+        }
+
+        Commands::Plan { name, project } => {
+            plan::plan(&name, project).await?;
+        }
+
+        Commands::Work { command } => {
+            work::work(command).await?;
         }
 
         Commands::Show { id } => {

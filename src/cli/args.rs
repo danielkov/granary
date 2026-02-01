@@ -8,9 +8,24 @@ use crate::output::OutputFormat;
 #[derive(Parser)]
 #[command(name = "granary")]
 #[command(author, version = crate::cli::update::version_with_update_notice(), about, long_about = None)]
+#[command(after_help = "\
+AGENTS (AI/LLM):
+  Plan a feature:
+    granary plan \"Feature name\"
+
+  Plan multi-project work:
+    granary initiative \"Initiative name\"
+
+  Work on a task:
+    granary work start <task-id>
+
+  Search projects and tasks:
+    granary search \"keyword\"
+
+  For workflow guidance, run: granary")]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 
     /// Output format
     #[arg(long, global = true, value_enum, default_value = "table")]
@@ -77,6 +92,26 @@ pub enum Commands {
     /// Check workspace health
     Doctor,
 
+    /// Plan a new feature - creates project and guides task creation
+    #[command(after_help = "EXAMPLE:\n    granary plan \"Add Instagram OAuth2 provider\"")]
+    Plan {
+        /// Feature/project name
+        name: String,
+
+        /// Plan an existing project (for initiative sub-projects)
+        #[arg(long)]
+        project: Option<String>,
+    },
+
+    /// Work on a task - claims and provides full context
+    #[command(
+        after_help = "EXAMPLES:\n    granary work start my-project-abc1-task-1\n    granary work done my-project-abc1-task-1 \"Implemented feature\"\n    granary work block my-project-abc1-task-1 \"Waiting for API credentials\"\n    granary work release my-project-abc1-task-1"
+    )]
+    Work {
+        #[command(subcommand)]
+        command: WorkCommand,
+    },
+
     /// Show any entity by ID (auto-detects type from ID pattern)
     #[command(
         after_help = "EXAMPLES:\n    granary show my-project-abc1           # Show a project\n    granary show my-project-abc1-task-1    # Show a task\n    granary show sess-20260112-xyz1        # Show a session\n    granary show chkpt-abc123              # Show a checkpoint\n\nID PATTERNS:\n    project:    <name>-<4chars>              e.g., my-project-abc1\n    task:       <project-id>-task-<n>        e.g., my-project-abc1-task-1\n    session:    sess-<date>-<4chars>         e.g., sess-20260112-xyz1\n    checkpoint: chkpt-<6chars>               e.g., chkpt-abc123\n    comment:    <task-id>-comment-<n>        e.g., my-proj-abc1-task-1-comment-1\n    artifact:   <task-id>-artifact-<n>       e.g., my-proj-abc1-task-1-artifact-1"
@@ -87,6 +122,9 @@ pub enum Commands {
     },
 
     /// List all projects or create a new one
+    #[command(
+        after_help = "AGENTS: To plan a new project with guided task creation, use:\n    granary plan \"Project name\""
+    )]
     Projects {
         #[command(subcommand)]
         action: Option<ProjectsAction>,
@@ -97,6 +135,9 @@ pub enum Commands {
     },
 
     /// Work with a specific project or create a new one
+    #[command(
+        after_help = "AGENTS: To plan a new project with guided task creation, use:\n    granary plan \"Project name\""
+    )]
     Project {
         /// Project ID (or "create" to create a new project)
         id: String,
@@ -106,6 +147,9 @@ pub enum Commands {
     },
 
     /// List tasks
+    #[command(
+        after_help = "AGENTS: To work on a task with full context, use:\n    granary work start <task-id>"
+    )]
     Tasks {
         /// Show all tasks (across all projects)
         #[arg(long)]
@@ -125,6 +169,9 @@ pub enum Commands {
     },
 
     /// Work with a specific task
+    #[command(
+        after_help = "AGENTS: To work on this task with full context and steering, use:\n    granary work start <task-id>"
+    )]
     Task {
         /// Task ID
         id: String,
@@ -145,6 +192,9 @@ pub enum Commands {
     },
 
     /// Start a task (alias for task <id> start)
+    #[command(
+        after_help = "AGENTS: For full task context with steering files, use:\n    granary work start <task-id>"
+    )]
     Start {
         /// Task ID
         task_id: String,
@@ -259,12 +309,16 @@ pub enum Commands {
     },
 
     /// Search projects and tasks by title
+    #[command(after_help = "EXAMPLE:\n    granary search \"oauth\"")]
     Search {
         /// Search query
         query: String,
     },
 
     /// List all initiatives or create a new one
+    #[command(
+        after_help = "AGENTS: To plan a multi-project initiative, use:\n    granary initiative \"Initiative name\""
+    )]
     Initiatives {
         #[command(subcommand)]
         action: Option<InitiativesAction>,
@@ -274,9 +328,10 @@ pub enum Commands {
         all: bool,
     },
 
-    /// Work with a specific initiative
+    /// Work with a specific initiative or plan a new one
+    #[command(after_help = "EXAMPLE:\n    granary initiative \"User authentication system\"")]
     Initiative {
-        /// Initiative ID
+        /// Initiative ID (or name to create new)
         id: String,
 
         #[command(subcommand)]
@@ -340,8 +395,58 @@ pub enum Commands {
 }
 
 #[derive(Subcommand)]
+pub enum WorkCommand {
+    /// Start working on a task (claims it and outputs context)
+    #[command(
+        after_help = "EXAMPLE:\n    granary work start my-project-abc1-task-1 --owner \"Opus 4.5\""
+    )]
+    Start {
+        /// Task ID
+        task_id: String,
+
+        /// Owner name (e.g., "Opus 4.5 Worker 83")
+        #[arg(long)]
+        owner: Option<String>,
+    },
+
+    /// Mark task as done
+    #[command(
+        after_help = "EXAMPLE:\n    granary work done my-project-abc1-task-1 \"Implemented OAuth2 token exchange\""
+    )]
+    Done {
+        /// Task ID
+        task_id: String,
+
+        /// Summary of changes
+        summary: String,
+    },
+
+    /// Block task with reason
+    #[command(
+        after_help = "EXAMPLE:\n    granary work block my-project-abc1-task-1 \"Waiting for API credentials\""
+    )]
+    Block {
+        /// Task ID
+        task_id: String,
+
+        /// Reason for blocking
+        reason: String,
+    },
+
+    /// Release task (give up claim)
+    #[command(after_help = "EXAMPLE:\n    granary work release my-project-abc1-task-1")]
+    Release {
+        /// Task ID
+        task_id: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum ProjectsAction {
     /// Create a new project
+    #[command(
+        after_help = "AGENTS: For guided project planning with task creation, use:\n    granary plan \"Project name\""
+    )]
     Create {
         /// Project name
         name: String,
@@ -395,6 +500,40 @@ pub enum ProjectAction {
         #[command(subcommand)]
         action: ProjectDepsAction,
     },
+
+    /// Show project summary
+    Summary,
+
+    /// Mark project as ready for work (planning complete)
+    Ready,
+
+    /// Manage project-attached steering files
+    Steer {
+        #[command(subcommand)]
+        action: ProjectSteerAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ProjectSteerAction {
+    /// Add a steering file to this project
+    Add {
+        /// File path
+        path: String,
+
+        /// Mode (always, on-demand)
+        #[arg(long, default_value = "always")]
+        mode: String,
+    },
+
+    /// Remove a steering file from this project
+    Rm {
+        /// File path
+        path: String,
+    },
+
+    /// List steering files for this project
+    List,
 }
 
 #[derive(Subcommand)]
@@ -421,6 +560,9 @@ pub enum ProjectDepsAction {
 #[derive(Subcommand)]
 pub enum ProjectTasksAction {
     /// Create a new task
+    #[command(
+        after_help = "EXAMPLE:\n    granary project my-proj-abc1 tasks create \"Implement OAuth\" --description \"Add OAuth2 flow\""
+    )]
     Create {
         /// Task title
         title: String,
@@ -488,6 +630,9 @@ pub enum TaskAction {
     Ready,
 
     /// Start working on task
+    #[command(
+        after_help = "AGENTS: For full task context with steering files, use:\n    granary work start <task-id>"
+    )]
     Start {
         /// Owner
         #[arg(long)]
@@ -880,6 +1025,9 @@ pub enum SteeringAction {
 #[derive(Subcommand)]
 pub enum InitiativesAction {
     /// Create a new initiative
+    #[command(
+        after_help = "AGENTS: For guided initiative planning with project creation, use:\n    granary initiative \"Initiative name\""
+    )]
     Create {
         /// Initiative name
         name: String,

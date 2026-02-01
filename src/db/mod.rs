@@ -1563,6 +1563,7 @@ pub mod search {
     use super::*;
 
     /// Search projects by name (case-insensitive)
+    /// TODO: need to migrate this to FTS5
     pub async fn search_projects(pool: &SqlitePool, query: &str) -> Result<Vec<Project>> {
         let projects = sqlx::query_as::<_, Project>(
             r#"
